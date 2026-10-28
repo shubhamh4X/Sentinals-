@@ -1,0 +1,629 @@
+{
+  "entities": {
+    "AdminRole": {
+      "title": "AdminRole",
+      "description": "Trusted administrator membership document used for zero-trust RBAC verification.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the administrator",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "role": {
+          "type": "string",
+          "description": "Assigned role level",
+          "enum": ["Administrator", "Security Analyst", "Read-Only Viewer"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of role creation"
+        }
+      },
+      "required": ["uid", "role", "createdAt"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated SOC user profile with strict PII isolation.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "minLength": 3,
+          "maxLength": 254
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "role": {
+          "type": "string",
+          "enum": ["Administrator", "Security Analyst", "Read-Only Viewer"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "email", "displayName", "role", "createdAt", "updatedAt"]
+    },
+    "MonitoredDevice": {
+      "title": "MonitoredDevice",
+      "description": "Registered Windows PC endpoint running the Sentinel AC native service.",
+      "type": "object",
+      "properties": {
+        "deviceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "hostname": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "osVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "agentVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "status": {
+          "type": "string",
+          "enum": ["healthy", "degraded", "disconnected", "revoked"]
+        },
+        "emulatorName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "gameSessionState": {
+          "type": "string",
+          "enum": ["idle", "launching", "active_match", "terminated"]
+        },
+        "freeFirePackage": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "integrityStatus": {
+          "type": "string",
+          "enum": ["verified", "tamper_suspected", "signature_mismatch"]
+        },
+        "riskScore": {
+          "type": "number"
+        },
+        "isSimulated": {
+          "type": "boolean"
+        },
+        "lastHeartbeat": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "deviceId",
+        "ownerId",
+        "hostname",
+        "osVersion",
+        "agentVersion",
+        "status",
+        "emulatorName",
+        "gameSessionState",
+        "freeFirePackage",
+        "integrityStatus",
+        "riskScore",
+        "isSimulated",
+        "lastHeartbeat",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "SecurityEventRecord": {
+      "title": "SecurityEventRecord",
+      "description": "Validated anti-cheat telemetry event from a monitored Windows endpoint.",
+      "type": "object",
+      "properties": {
+        "eventId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "deviceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "hostname": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "emulator": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "sessionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "ruleId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "ruleVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "Process & Executable Integrity",
+            "Memory & Injection Indicators",
+            "Emulator Integrity",
+            "ESP & Gameplay Manipulation",
+            "Agent Self-Integrity"
+          ]
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["critical", "high", "medium", "low"]
+        },
+        "classification": {
+          "type": "string",
+          "enum": ["informational", "suspicious", "strongly_indicative"]
+        },
+        "confidence": {
+          "type": "number"
+        },
+        "riskContribution": {
+          "type": "number"
+        },
+        "processName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "processPath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "sha256": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "signerIdentity": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 600
+        },
+        "detectionSource": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "isSimulated": {
+          "type": "boolean"
+        },
+        "eventTimestamp": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "eventId",
+        "ownerId",
+        "deviceId",
+        "hostname",
+        "emulator",
+        "sessionId",
+        "ruleId",
+        "ruleVersion",
+        "category",
+        "severity",
+        "classification",
+        "confidence",
+        "riskContribution",
+        "processName",
+        "processPath",
+        "sha256",
+        "signerIdentity",
+        "summary",
+        "detectionSource",
+        "isSimulated",
+        "eventTimestamp",
+        "createdAt"
+      ]
+    },
+    "IncidentRecord": {
+      "title": "IncidentRecord",
+      "description": "Correlated security incident for threat investigation and analyst disposition.",
+      "type": "object",
+      "properties": {
+        "incidentId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        },
+        "deviceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "hostname": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "emulator": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["critical", "high", "medium", "low"]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["open", "investigating", "confirmed_violation", "dismissed_false_positive"]
+        },
+        "aggregatedRiskScore": {
+          "type": "number"
+        },
+        "confidenceScore": {
+          "type": "number"
+        },
+        "correlatedEventCount": {
+          "type": "number"
+        },
+        "primaryRuleId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "executablePath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "fileSha256": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "digitalSignature": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "evidenceSummary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1500
+        },
+        "limitationsNotice": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "analystNotes": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 2000
+        },
+        "recommendedAction": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "isSimulated": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "incidentId",
+        "ownerId",
+        "title",
+        "deviceId",
+        "hostname",
+        "emulator",
+        "severity",
+        "status",
+        "aggregatedRiskScore",
+        "confidenceScore",
+        "correlatedEventCount",
+        "primaryRuleId",
+        "executablePath",
+        "fileSha256",
+        "digitalSignature",
+        "evidenceSummary",
+        "limitationsNotice",
+        "analystNotes",
+        "recommendedAction",
+        "isSimulated",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "DetectionRuleRecord": {
+      "title": "DetectionRuleRecord",
+      "description": "Digitally signed detection rule configuration.",
+      "type": "object",
+      "properties": {
+        "ruleId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "Process & Executable Integrity",
+            "Memory & Injection Indicators",
+            "Emulator Integrity",
+            "ESP & Gameplay Manipulation",
+            "Agent Self-Integrity"
+          ]
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["critical", "high", "medium", "low"]
+        },
+        "classification": {
+          "type": "string",
+          "enum": ["informational", "suspicious", "strongly_indicative"]
+        },
+        "confidence": {
+          "type": "number"
+        },
+        "riskScoreContribution": {
+          "type": "number"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "detectionSource": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "falsePositiveConsiderations": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "investigationSteps": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "signatureHash": {
+          "type": "string",
+          "minLength": 16,
+          "maxLength": 256
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "ruleId",
+        "ownerId",
+        "version",
+        "name",
+        "category",
+        "severity",
+        "classification",
+        "confidence",
+        "riskScoreContribution",
+        "enabled",
+        "detectionSource",
+        "description",
+        "falsePositiveConsiderations",
+        "investigationSteps",
+        "signatureHash",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AuditLogRecord": {
+      "title": "AuditLogRecord",
+      "description": "Immutable audit trail entry for administrative and analyst actions.",
+      "type": "object",
+      "properties": {
+        "logId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "actorEmail": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 254
+        },
+        "actorRole": {
+          "type": "string",
+          "enum": ["Administrator", "Security Analyst", "Read-Only Viewer"]
+        },
+        "action": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "targetType": {
+          "type": "string",
+          "enum": ["device", "incident", "rule", "session", "policy"]
+        },
+        "targetId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "details": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "logId",
+        "ownerId",
+        "actorEmail",
+        "actorRole",
+        "action",
+        "targetType",
+        "targetId",
+        "details",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/admins/{adminId}": {
+      "schema": { "$ref": "#/entities/AdminRole" },
+      "description": "Trusted administrator directory for RBAC checks."
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "SOC analyst and viewer user profiles."
+    },
+    "/devices/{deviceId}": {
+      "schema": { "$ref": "#/entities/MonitoredDevice" },
+      "description": "Monitored Windows PC endpoints running Sentinel AC."
+    },
+    "/events/{eventId}": {
+      "schema": { "$ref": "#/entities/SecurityEventRecord" },
+      "description": "Real-time and historical anti-cheat telemetry events."
+    },
+    "/incidents/{incidentId}": {
+      "schema": { "$ref": "#/entities/IncidentRecord" },
+      "description": "Correlated security incidents and investigation case files."
+    },
+    "/rules/{ruleId}": {
+      "schema": { "$ref": "#/entities/DetectionRuleRecord" },
+      "description": "Signed detection rules and threshold configurations."
+    },
+    "/auditLogs/{logId}": {
+      "schema": { "$ref": "#/entities/AuditLogRecord" },
+      "description": "Immutable security operations audit log."
+    }
+  }
+}

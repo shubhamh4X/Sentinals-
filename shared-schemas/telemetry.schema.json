@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sentinel-ac.internal/schemas/v1.2.0/telemetry.schema.json",
+  "title": "Sentinel AC Telemetry, Incident, Health, and Rule Bundle Schema",
+  "version": "1.2.0",
+  "type": "object",
+  "definitions": {
+    "AgentHeartbeat": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "deviceId",
+        "hostname",
+        "osVersion",
+        "agentVersion",
+        "agentSha256",
+        "emulatorAdapter",
+        "gameSessionState",
+        "cpuPercent",
+        "memoryMb",
+        "queueDepth",
+        "timestamp",
+        "nonce",
+        "hmacSignature"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "1.2.0" },
+        "deviceId": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "hostname": { "type": "string", "maxLength": 120 },
+        "osVersion": { "type": "string", "maxLength": 120 },
+        "agentVersion": { "type": "string", "maxLength": 40 },
+        "agentSha256": { "type": "string", "pattern": "^[a-fA-F0-9]{64}$" },
+        "emulatorAdapter": {
+          "type": "string",
+          "enum": ["BlueStacks 5", "LDPlayer 9", "MEmu Play", "NoxPlayer", "Google Play Games PC", "None"]
+        },
+        "gameSessionState": {
+          "type": "string",
+          "enum": ["idle", "launching", "active_match", "terminated"]
+        },
+        "cpuPercent": { "type": "number", "minimum": 0, "maximum": 100 },
+        "memoryMb": { "type": "number", "minimum": 0, "maximum": 65536 },
+        "queueDepth": { "type": "integer", "minimum": 0 },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "nonce": { "type": "string", "minLength": 16, "maxLength": 64 },
+        "hmacSignature": { "type": "string", "minLength": 64, "maxLength": 128 }
+      }
+    },
+    "RawAgentTelemetryPayload": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "nonce",
+        "deviceId",
+        "hostname",
+        "emulator",
+        "sessionId",
+        "indicatorType",
+        "processName",
+        "processPath",
+        "sha256",
+        "signerIdentity",
+        "observedTimestamp",
+        "isSimulated"
+      ],
+      "properties": {
+        "schemaVersion": { "const": "1.2.0" },
+        "nonce": { "type": "string", "minLength": 8, "maxLength": 64 },
+        "deviceId": { "type": "string", "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "hostname": { "type": "string", "maxLength": 120 },
+        "emulator": { "type": "string", "maxLength": 80 },
+        "sessionId": { "type": "string", "maxLength": 128 },
+        "indicatorType": {
+          "type": "string",
+          "enum": [
+            "NORMAL_EMULATOR_LAUNCH",
+            "KNOWN_CHEAT_SIGNATURE",
+            "UNSIGNED_TEMP_EXECUTABLE",
+            "SUSPICIOUS_PROCESS_ANCESTRY",
+            "CROSS_PROCESS_VM_WRITE",
+            "UNBACKED_EXECUTABLE_MEMORY",
+            "UNEXPECTED_DLL_INJECTION",
+            "MODIFIED_LIBIL2CPP_ASSET",
+            "UNAUTHORIZED_ADB_BRIDGE",
+            "EMULATOR_CONFIG_TAMPER",
+            "TRANSPARENT_TOPMOST_OVERLAY",
+            "EXTERNAL_AIMBOT_DRIVER_PIPE",
+            "AGENT_HEARTBEAT_TIMEOUT"
+          ]
+        },
+        "processName": { "type": "string", "maxLength": 160 },
+        "processPath": { "type": "string", "maxLength": 512 },
+        "parentProcessName": { "type": "string", "maxLength": 160 },
+        "sha256": { "type": "string", "maxLength": 128 },
+        "signerIdentity": { "type": "string", "maxLength": 200 },
+        "requestedAccessMask": { "type": "string", "maxLength": 64 },
+        "targetProcess": { "type": "string", "maxLength": 160 },
+        "memoryProtection": { "type": "string", "maxLength": 64 },
+        "windowExStyle": { "type": "string", "maxLength": 120 },
+        "modifiedAssetPath": { "type": "string", "maxLength": 512 },
+        "observedTimestamp": { "type": "string", "format": "date-time" },
+        "isSimulated": { "type": "boolean" }
+      }
+    }
+  }
+}

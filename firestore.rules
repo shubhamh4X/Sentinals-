@@ -1,0 +1,433 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net (Default-Deny Catch-All)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ------------------------------------------------------------------------
+    // Primitive Helpers (Phase 3)
+    // ------------------------------------------------------------------------
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isBootstrappedAdmin() {
+      return isVerifiedUser() && request.auth.token.email == 'shubhamdas6789@gmail.com';
+    }
+
+    function isAdmin() {
+      return isBootstrappedAdmin() || (
+        isVerifiedUser() && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // ------------------------------------------------------------------------
+    // Validation Blueprints (Pillar 2: Anti-Update-Gap)
+    // ------------------------------------------------------------------------
+    function isValidAdminRole(data) {
+      return data.keys().hasAll(['uid', 'role', 'createdAt']) &&
+        data.keys().hasOnly(['uid', 'role', 'createdAt']) &&
+        isValidId(data.uid) &&
+        data.role is string && data.role.size() >= 1 && data.role.size() <= 32 &&
+        (data.role == 'Administrator' || data.role == 'Security Analyst' || data.role == 'Read-Only Viewer') &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'role', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'email', 'displayName', 'role', 'createdAt', 'updatedAt']) &&
+        isValidId(data.uid) &&
+        data.uid == request.auth.uid &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 254 &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100 &&
+        data.role is string && data.role.size() >= 1 && data.role.size() <= 32 &&
+        (data.role == 'Administrator' || data.role == 'Security Analyst' || data.role == 'Read-Only Viewer') &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidMonitoredDevice(data) {
+      return data.keys().hasAll([
+          'deviceId', 'ownerId', 'hostname', 'osVersion', 'agentVersion',
+          'status', 'emulatorName', 'gameSessionState', 'freeFirePackage',
+          'integrityStatus', 'riskScore', 'isSimulated', 'lastHeartbeat',
+          'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'deviceId', 'ownerId', 'hostname', 'osVersion', 'agentVersion',
+          'status', 'emulatorName', 'gameSessionState', 'freeFirePackage',
+          'integrityStatus', 'riskScore', 'isSimulated', 'lastHeartbeat',
+          'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.deviceId) &&
+        isValidId(data.ownerId) &&
+        data.ownerId == request.auth.uid &&
+        data.hostname is string && data.hostname.size() >= 1 && data.hostname.size() <= 120 &&
+        data.osVersion is string && data.osVersion.size() >= 1 && data.osVersion.size() <= 120 &&
+        data.agentVersion is string && data.agentVersion.size() >= 1 && data.agentVersion.size() <= 40 &&
+        data.status is string && data.status.size() >= 1 && data.status.size() <= 32 &&
+        (data.status == 'healthy' || data.status == 'degraded' || data.status == 'disconnected' || data.status == 'revoked') &&
+        data.emulatorName is string && data.emulatorName.size() >= 1 && data.emulatorName.size() <= 80 &&
+        data.gameSessionState is string && data.gameSessionState.size() >= 1 && data.gameSessionState.size() <= 32 &&
+        (data.gameSessionState == 'idle' || data.gameSessionState == 'launching' || data.gameSessionState == 'active_match' || data.gameSessionState == 'terminated') &&
+        data.freeFirePackage is string && data.freeFirePackage.size() >= 1 && data.freeFirePackage.size() <= 80 &&
+        data.integrityStatus is string && data.integrityStatus.size() >= 1 && data.integrityStatus.size() <= 32 &&
+        (data.integrityStatus == 'verified' || data.integrityStatus == 'tamper_suspected' || data.integrityStatus == 'signature_mismatch') &&
+        data.riskScore is number && data.riskScore >= 0 && data.riskScore <= 100 &&
+        data.isSimulated is bool &&
+        data.lastHeartbeat is string && data.lastHeartbeat.size() >= 1 && data.lastHeartbeat.size() <= 64 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidSecurityEventRecord(data) {
+      return data.keys().hasAll([
+          'eventId', 'ownerId', 'deviceId', 'hostname', 'emulator',
+          'sessionId', 'ruleId', 'ruleVersion', 'category', 'severity',
+          'classification', 'confidence', 'riskContribution', 'processName',
+          'processPath', 'sha256', 'signerIdentity', 'summary',
+          'detectionSource', 'isSimulated', 'eventTimestamp', 'createdAt'
+        ]) &&
+        data.keys().hasOnly([
+          'eventId', 'ownerId', 'deviceId', 'hostname', 'emulator',
+          'sessionId', 'ruleId', 'ruleVersion', 'category', 'severity',
+          'classification', 'confidence', 'riskContribution', 'processName',
+          'processPath', 'sha256', 'signerIdentity', 'summary',
+          'detectionSource', 'isSimulated', 'eventTimestamp', 'createdAt'
+        ]) &&
+        isValidId(data.eventId) &&
+        isValidId(data.ownerId) &&
+        data.ownerId == request.auth.uid &&
+        isValidId(data.deviceId) &&
+        data.hostname is string && data.hostname.size() >= 1 && data.hostname.size() <= 120 &&
+        data.emulator is string && data.emulator.size() >= 1 && data.emulator.size() <= 80 &&
+        data.sessionId is string && data.sessionId.size() >= 1 && data.sessionId.size() <= 128 &&
+        data.ruleId is string && data.ruleId.size() >= 1 && data.ruleId.size() <= 64 &&
+        data.ruleVersion is string && data.ruleVersion.size() >= 1 && data.ruleVersion.size() <= 32 &&
+        data.category is string && data.category.size() >= 1 && data.category.size() <= 64 &&
+        (
+          data.category == 'Process & Executable Integrity' ||
+          data.category == 'Memory & Injection Indicators' ||
+          data.category == 'Emulator Integrity' ||
+          data.category == 'ESP & Gameplay Manipulation' ||
+          data.category == 'Agent Self-Integrity'
+        ) &&
+        data.severity is string && data.severity.size() >= 1 && data.severity.size() <= 16 &&
+        (data.severity == 'critical' || data.severity == 'high' || data.severity == 'medium' || data.severity == 'low') &&
+        data.classification is string && data.classification.size() >= 1 && data.classification.size() <= 32 &&
+        (data.classification == 'informational' || data.classification == 'suspicious' || data.classification == 'strongly_indicative') &&
+        data.confidence is number && data.confidence >= 0 && data.confidence <= 100 &&
+        data.riskContribution is number && data.riskContribution >= 0 && data.riskContribution <= 100 &&
+        data.processName is string && data.processName.size() >= 1 && data.processName.size() <= 160 &&
+        data.processPath is string && data.processPath.size() >= 1 && data.processPath.size() <= 512 &&
+        data.sha256 is string && data.sha256.size() >= 1 && data.sha256.size() <= 128 &&
+        data.signerIdentity is string && data.signerIdentity.size() >= 1 && data.signerIdentity.size() <= 200 &&
+        data.summary is string && data.summary.size() >= 1 && data.summary.size() <= 600 &&
+        data.detectionSource is string && data.detectionSource.size() >= 1 && data.detectionSource.size() <= 120 &&
+        data.isSimulated is bool &&
+        data.eventTimestamp is string && data.eventTimestamp.size() >= 1 && data.eventTimestamp.size() <= 64 &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidIncidentRecord(data) {
+      return data.keys().hasAll([
+          'incidentId', 'ownerId', 'title', 'deviceId', 'hostname', 'emulator',
+          'severity', 'status', 'aggregatedRiskScore', 'confidenceScore',
+          'correlatedEventCount', 'primaryRuleId', 'executablePath',
+          'fileSha256', 'digitalSignature', 'evidenceSummary',
+          'limitationsNotice', 'analystNotes', 'recommendedAction',
+          'isSimulated', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'incidentId', 'ownerId', 'title', 'deviceId', 'hostname', 'emulator',
+          'severity', 'status', 'aggregatedRiskScore', 'confidenceScore',
+          'correlatedEventCount', 'primaryRuleId', 'executablePath',
+          'fileSha256', 'digitalSignature', 'evidenceSummary',
+          'limitationsNotice', 'analystNotes', 'recommendedAction',
+          'isSimulated', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.incidentId) &&
+        isValidId(data.ownerId) &&
+        data.ownerId == request.auth.uid &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 240 &&
+        data.deviceId is string && data.deviceId.size() >= 1 && data.deviceId.size() <= 128 &&
+        data.hostname is string && data.hostname.size() >= 1 && data.hostname.size() <= 120 &&
+        data.emulator is string && data.emulator.size() >= 1 && data.emulator.size() <= 80 &&
+        data.severity is string && data.severity.size() >= 1 && data.severity.size() <= 16 &&
+        (data.severity == 'critical' || data.severity == 'high' || data.severity == 'medium' || data.severity == 'low') &&
+        data.status is string && data.status.size() >= 1 && data.status.size() <= 32 &&
+        (
+          data.status == 'open' ||
+          data.status == 'investigating' ||
+          data.status == 'confirmed_violation' ||
+          data.status == 'dismissed_false_positive'
+        ) &&
+        data.aggregatedRiskScore is number && data.aggregatedRiskScore >= 0 && data.aggregatedRiskScore <= 100 &&
+        data.confidenceScore is number && data.confidenceScore >= 0 && data.confidenceScore <= 100 &&
+        data.correlatedEventCount is number && data.correlatedEventCount >= 1 && data.correlatedEventCount <= 10000 &&
+        data.primaryRuleId is string && data.primaryRuleId.size() >= 1 && data.primaryRuleId.size() <= 64 &&
+        data.executablePath is string && data.executablePath.size() >= 1 && data.executablePath.size() <= 512 &&
+        data.fileSha256 is string && data.fileSha256.size() >= 1 && data.fileSha256.size() <= 128 &&
+        data.digitalSignature is string && data.digitalSignature.size() >= 1 && data.digitalSignature.size() <= 200 &&
+        data.evidenceSummary is string && data.evidenceSummary.size() >= 1 && data.evidenceSummary.size() <= 1500 &&
+        data.limitationsNotice is string && data.limitationsNotice.size() >= 1 && data.limitationsNotice.size() <= 1000 &&
+        data.analystNotes is string && data.analystNotes.size() >= 0 && data.analystNotes.size() <= 2000 &&
+        data.recommendedAction is string && data.recommendedAction.size() >= 1 && data.recommendedAction.size() <= 500 &&
+        data.isSimulated is bool &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidDetectionRuleRecord(data) {
+      return data.keys().hasAll([
+          'ruleId', 'ownerId', 'version', 'name', 'category', 'severity',
+          'classification', 'confidence', 'riskScoreContribution', 'enabled',
+          'detectionSource', 'description', 'falsePositiveConsiderations',
+          'investigationSteps', 'signatureHash', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ruleId', 'ownerId', 'version', 'name', 'category', 'severity',
+          'classification', 'confidence', 'riskScoreContribution', 'enabled',
+          'detectionSource', 'description', 'falsePositiveConsiderations',
+          'investigationSteps', 'signatureHash', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.ruleId) &&
+        isValidId(data.ownerId) &&
+        data.ownerId == request.auth.uid &&
+        data.version is string && data.version.size() >= 1 && data.version.size() <= 32 &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 160 &&
+        data.category is string && data.category.size() >= 1 && data.category.size() <= 64 &&
+        (
+          data.category == 'Process & Executable Integrity' ||
+          data.category == 'Memory & Injection Indicators' ||
+          data.category == 'Emulator Integrity' ||
+          data.category == 'ESP & Gameplay Manipulation' ||
+          data.category == 'Agent Self-Integrity'
+        ) &&
+        data.severity is string && data.severity.size() >= 1 && data.severity.size() <= 16 &&
+        (data.severity == 'critical' || data.severity == 'high' || data.severity == 'medium' || data.severity == 'low') &&
+        data.classification is string && data.classification.size() >= 1 && data.classification.size() <= 32 &&
+        (data.classification == 'informational' || data.classification == 'suspicious' || data.classification == 'strongly_indicative') &&
+        data.confidence is number && data.confidence >= 0 && data.confidence <= 100 &&
+        data.riskScoreContribution is number && data.riskScoreContribution >= 0 && data.riskScoreContribution <= 100 &&
+        data.enabled is bool &&
+        data.detectionSource is string && data.detectionSource.size() >= 1 && data.detectionSource.size() <= 120 &&
+        data.description is string && data.description.size() >= 1 && data.description.size() <= 1000 &&
+        data.falsePositiveConsiderations is string && data.falsePositiveConsiderations.size() >= 1 && data.falsePositiveConsiderations.size() <= 1000 &&
+        data.investigationSteps is string && data.investigationSteps.size() >= 1 && data.investigationSteps.size() <= 1000 &&
+        data.signatureHash is string && data.signatureHash.size() >= 16 && data.signatureHash.size() <= 256 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidAuditLogRecord(data) {
+      return data.keys().hasAll([
+          'logId', 'ownerId', 'actorEmail', 'actorRole', 'action',
+          'targetType', 'targetId', 'details', 'createdAt'
+        ]) &&
+        data.keys().hasOnly([
+          'logId', 'ownerId', 'actorEmail', 'actorRole', 'action',
+          'targetType', 'targetId', 'details', 'createdAt'
+        ]) &&
+        isValidId(data.logId) &&
+        isValidId(data.ownerId) &&
+        data.ownerId == request.auth.uid &&
+        data.actorEmail is string && data.actorEmail.size() >= 3 && data.actorEmail.size() <= 254 &&
+        data.actorRole is string && data.actorRole.size() >= 1 && data.actorRole.size() <= 32 &&
+        (data.role == 'Administrator' || data.actorRole == 'Administrator' || data.actorRole == 'Security Analyst' || data.actorRole == 'Read-Only Viewer') &&
+        data.action is string && data.action.size() >= 1 && data.action.size() <= 120 &&
+        data.targetType is string && data.targetType.size() >= 1 && data.targetType.size() <= 32 &&
+        (data.targetType == 'device' || data.targetType == 'incident' || data.targetType == 'rule' || data.targetType == 'session' || data.targetType == 'policy') &&
+        data.targetId is string && data.targetId.size() >= 1 && data.targetId.size() <= 128 &&
+        data.details is string && data.details.size() >= 1 && data.details.size() <= 1000 &&
+        data.createdAt is timestamp;
+    }
+
+    // ------------------------------------------------------------------------
+    // Collection Match Blocks (Phase 6 Final Production Rules)
+    // ------------------------------------------------------------------------
+
+    // 1. /admins/{adminId}
+    match /admins/{adminId} {
+      allow get: if isVerifiedUser() && isValidId(adminId) && (isOwner(adminId) || isAdmin());
+      allow list: if isBootstrappedAdmin();
+      allow create: if isBootstrappedAdmin() &&
+        isValidId(adminId) &&
+        isValidAdminRole(incoming()) &&
+        incoming().uid == adminId &&
+        incoming().createdAt == request.time;
+      allow update, delete: if false;
+    }
+
+    // 2. /users/{userId} (PII Isolated to Owner or Admin)
+    match /users/{userId} {
+      allow get: if isVerifiedUser() && isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isSignedIn() && (existing().uid == request.auth.uid || isBootstrappedAdmin());
+      allow create: if isVerifiedUser() &&
+        isValidId(userId) &&
+        isOwner(userId) &&
+        isValidUserProfile(incoming()) &&
+        incoming().uid == userId &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (incoming().role != 'Administrator' || isAdmin());
+      allow update: if isVerifiedUser() &&
+        isValidId(userId) &&
+        isValidUserProfile(incoming()) &&
+        incoming().uid == existing().uid &&
+        incoming().email == existing().email &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          (isOwner(userId) && incoming().role == existing().role && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'updatedAt'])) ||
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'role', 'updatedAt']))
+        );
+      allow delete: if false;
+    }
+
+    // 3. /devices/{deviceId}
+    match /devices/{deviceId} {
+      allow get: if isVerifiedUser() && isValidId(deviceId) && (existing().ownerId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (existing().ownerId == request.auth.uid || isBootstrappedAdmin());
+      allow create: if isVerifiedUser() &&
+        isValidId(deviceId) &&
+        isValidMonitoredDevice(incoming()) &&
+        incoming().deviceId == deviceId &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser() &&
+        isValidId(deviceId) &&
+        isValidMonitoredDevice(incoming()) &&
+        incoming().deviceId == existing().deviceId &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (existing().status != 'revoked' || isAdmin()) &&
+        (
+          isAdmin() ||
+          (
+            existing().ownerId == request.auth.uid &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'status', 'emulatorName', 'gameSessionState', 'freeFirePackage',
+              'integrityStatus', 'riskScore', 'lastHeartbeat', 'updatedAt'
+            ])
+          )
+        );
+      allow delete: if isVerifiedUser() && isValidId(deviceId) && isAdmin();
+    }
+
+    // 4. /events/{eventId} (Append-only telemetry; admin cleanup permitted)
+    match /events/{eventId} {
+      allow get: if isVerifiedUser() && isValidId(eventId) && (existing().ownerId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (existing().ownerId == request.auth.uid || isBootstrappedAdmin());
+      allow create: if isVerifiedUser() &&
+        isValidId(eventId) &&
+        isValidSecurityEventRecord(incoming()) &&
+        incoming().eventId == eventId &&
+        incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isVerifiedUser() && isValidId(eventId) && isAdmin();
+    }
+
+    // 5. /incidents/{incidentId}
+    match /incidents/{incidentId} {
+      allow get: if isVerifiedUser() && isValidId(incidentId) && (existing().ownerId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (existing().ownerId == request.auth.uid || isBootstrappedAdmin());
+      allow create: if isVerifiedUser() &&
+        isValidId(incidentId) &&
+        isValidIncidentRecord(incoming()) &&
+        incoming().incidentId == incidentId &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser() &&
+        isValidId(incidentId) &&
+        isValidIncidentRecord(incoming()) &&
+        incoming().incidentId == existing().incidentId &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().deviceId == existing().deviceId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          !(existing().status == 'confirmed_violation' || existing().status == 'dismissed_false_positive') ||
+          isAdmin()
+        ) &&
+        (
+          isAdmin() ||
+          (
+            existing().ownerId == request.auth.uid &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'status', 'analystNotes', 'recommendedAction', 'aggregatedRiskScore',
+              'correlatedEventCount', 'updatedAt'
+            ])
+          )
+        );
+      allow delete: if isVerifiedUser() && isValidId(incidentId) && isAdmin();
+    }
+
+    // 6. /rules/{ruleId}
+    match /rules/{ruleId} {
+      allow get: if isVerifiedUser() && isValidId(ruleId) && (existing().ownerId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (existing().ownerId == request.auth.uid || isBootstrappedAdmin());
+      allow create: if isVerifiedUser() &&
+        isValidId(ruleId) &&
+        isValidDetectionRuleRecord(incoming()) &&
+        incoming().ruleId == ruleId &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser() &&
+        isValidId(ruleId) &&
+        isValidDetectionRuleRecord(incoming()) &&
+        incoming().ruleId == existing().ruleId &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          isAdmin() ||
+          (
+            existing().ownerId == request.auth.uid &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'enabled', 'severity', 'riskScoreContribution', 'version',
+              'signatureHash', 'updatedAt'
+            ])
+          )
+        );
+      allow delete: if isVerifiedUser() && isValidId(ruleId) && isAdmin();
+    }
+
+    // 7. /auditLogs/{logId} (Append-Only Audit Log; admin cleanup permitted)
+    match /auditLogs/{logId} {
+      allow get: if isVerifiedUser() && isValidId(logId) && (existing().ownerId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (existing().ownerId == request.auth.uid || isBootstrappedAdmin());
+      allow create: if isVerifiedUser() &&
+        isValidId(logId) &&
+        isValidAuditLogRecord(incoming()) &&
+        incoming().logId == logId &&
+        incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isVerifiedUser() && isValidId(logId) && isAdmin();
+    }
+  }
+}

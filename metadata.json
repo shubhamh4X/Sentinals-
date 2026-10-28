@@ -1,0 +1,6 @@
+{
+  "name": "Sentinel AC",
+  "description": "Vanguard-inspired anti-cheat security platform and real-time EDR console for monitoring Free Fire running inside Windows Android emulators.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
