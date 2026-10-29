@@ -1,0 +1,23 @@
+{
+  "devices": [],
+  "events": [],
+  "incidents": [],
+  "tokens": {
+    "win-real-verify-pc1": "tok_1793301688882_koh9spgp",
+    "win-real-verify-pc2": "tok_1793301688892_dwotrmv8"
+  },
+  "enrollmentTokens": [
+    {
+      "tokenId": "tok_enr_default",
+      "tokenSecret": "enr_sentinel_default_multi_pc",
+      "label": "Default Multi-PC Fleet Enrollment Token",
+      "createdBy": "admin@sentinel.local",
+      "createdAt": "2026-10-29T12:00:00.000Z",
+      "expiresAt": "2027-10-29T12:00:00.000Z",
+      "maxUses": 500,
+      "usedCount": 2,
+      "revoked": false
+    }
+  ],
+  "savedAt": "2026-10-29T19:21:28.927Z"
+}

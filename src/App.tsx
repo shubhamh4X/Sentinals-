@@ -18,6 +18,10 @@ import {
 } from './lib/firestoreRepo.ts';
 import { DEFAULT_SIGNED_RULES } from '../detection-engine/engine.ts';
 import {
+  computeFleetSummary,
+  isDemoOrSimulatedEventOrIncident,
+} from '../shared-schemas/fleetMetrics.ts';
+import {
   AuditLogRecord,
   DetectionRuleRecord,
   IncidentRecord,
@@ -26,26 +30,29 @@ import {
   UserRole,
 } from '../shared-schemas/types.ts';
 import { OverviewTab } from './components/OverviewTab.tsx';
+import { WindowsControlPanelTab } from './components/WindowsControlPanelTab.tsx';
+import { ConnectMyPcTab } from './components/ConnectMyPcTab.tsx';
+import { SetupWizard } from './components/SetupWizard.tsx';
 import { LiveMonitoringTab } from './components/LiveMonitoringTab.tsx';
 import { ThreatInvestigationTab } from './components/ThreatInvestigationTab.tsx';
-import { DeviceManagementTab } from './components/DeviceManagementTab.tsx';
-import { DetectionRulesTab } from './components/DetectionRulesTab.tsx';
-import { ArchitectureAndTestsTab } from './components/ArchitectureAndTestsTab.tsx';
-import { SettingsAndAuditTab } from './components/SettingsAndAuditTab.tsx';
+import { AdvancedSocTab } from './components/AdvancedSocTab.tsx';
+import { ConnectAgentModal } from './components/ConnectAgentModal.tsx';
 
 type ActiveTab =
   | 'overview'
+  | 'controlpanel'
+  | 'connect'
+  | 'wizard'
   | 'live'
   | 'investigation'
-  | 'devices'
-  | 'rules'
-  | 'tests'
-  | 'settings';
+  | 'advanced';
+
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('overview');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [userRole, setUserRole] = useState<UserRole>(UserRole.ADMINISTRATOR);
+  const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
 
   // Clean Real-Time Operational State: ZERO pre-populated mock records
   const [devices, setDevices] = useState<MonitoredDevice[]>([]);
@@ -57,6 +64,7 @@ export default function App() {
   const [auditLogs, setAuditLogs] = useState<AuditLogRecord[]>([]);
 
   const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
+  const [selectedDeviceFilter, setSelectedDeviceFilter] = useState<string>('all');
   const [wsConnected, setWsConnected] = useState<boolean>(false);
   const [isRunningScenario, setIsRunningScenario] = useState<string | null>(null);
   const [toastNotification, setToastNotification] = useState<string | null>(null);
@@ -85,7 +93,8 @@ export default function App() {
           );
           setUserRole(role);
           unsubFirestore = subscribeToWorkspaceCollections(user.uid, {
-            onDevices: setDevices,
+            // Authoritative device enrollment & live heartbeat status come strictly from backend /api/agent/devices
+            onDevices: () => {},
             onRules: (updatedRules) => {
               if (updatedRules.length > 0) setRules(updatedRules);
             },
@@ -97,8 +106,15 @@ export default function App() {
           console.error('Firestore initialization error:', err);
         }
       } else {
-        // If logged out, keep clean real-time state with zero pre-data
-        setDevices([]);
+        // If logged out of Firebase auth, sync real-time devices from backend registry
+        fetch('/api/agent/devices')
+          .then((r) => r.json())
+          .then((data) => {
+            if (Array.isArray(data?.devices)) {
+              setDevices(data.devices);
+            }
+          })
+          .catch(() => {});
         setEvents([]);
         setIncidents([]);
         setAuditLogs([]);
@@ -111,10 +127,155 @@ export default function App() {
     };
   }, []);
 
-  // WebSocket Real-Time Event Stream Connection
+  // WebSocket Real-Time Event Stream Connection & Device Sync
   useEffect(() => {
     let ws: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+    // Fetch authoritative enrolled Windows agents from backend registry
+    const fetchLiveDevices = () => {
+      fetch('/api/agent/devices')
+        .then((r) => r.json())
+        .then((data) => {
+          if (Array.isArray(data?.devices)) {
+            setDevices(data.devices);
+          }
+        })
+        .catch(() => {});
+
+      fetch('/api/agent/events')
+        .then((r) => r.json())
+        .then((data) => {
+          if (Array.isArray(data?.events)) {
+            const realEvents = (data.events as SecurityEventRecord[]).filter(
+              (e) => !isDemoOrSimulatedEventOrIncident(e)
+            );
+            setEvents((prev) => {
+              const map = new Map<string, SecurityEventRecord>();
+              for (const e of realEvents) map.set(e.eventId, e);
+              for (const e of prev) {
+                if (!map.has(e.eventId) && !isDemoOrSimulatedEventOrIncident(e)) {
+                  map.set(e.eventId, e);
+                }
+              }
+              return Array.from(map.values());
+            });
+          }
+          if (Array.isArray(data?.incidents)) {
+            const realIncidents = (data.incidents as IncidentRecord[]).filter(
+              (inc) => !isDemoOrSimulatedEventOrIncident(inc)
+            );
+            setIncidents((prev) => {
+              const map = new Map<string, IncidentRecord>();
+              for (const inc of realIncidents) map.set(inc.incidentId, inc);
+              for (const inc of prev) {
+                if (!map.has(inc.incidentId) && !isDemoOrSimulatedEventOrIncident(inc)) {
+                  map.set(inc.incidentId, inc);
+                }
+              }
+              return Array.from(map.values());
+            });
+          }
+        })
+        .catch(() => {});
+    };
+
+    const bridgeDeviceTokens = new Map<string, string>();
+    const pollLocalBridge = async () => {
+      try {
+        const res = await fetch('http://127.0.0.1:19450/poll', {
+          method: 'GET',
+          mode: 'cors',
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+
+        const devId = data?.device?.deviceId || data?.heartbeat?.deviceId;
+        if (data?.device && data.device.deviceId && !bridgeDeviceTokens.has(data.device.deviceId)) {
+          try {
+            const regRes = await fetch('/api/agent/register', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(data.device),
+            });
+            if (regRes.ok) {
+              const regJson = await regRes.json();
+              if (regJson?.token) {
+                bridgeDeviceTokens.set(data.device.deviceId, String(regJson.token));
+              }
+            }
+          } catch {}
+        }
+
+        const cachedToken = devId ? bridgeDeviceTokens.get(devId) || '' : '';
+        const authHeaders: Record<string, string> = {
+          'Content-Type': 'application/json',
+        };
+        if (cachedToken) {
+          authHeaders['x-sentinel-device-token'] = cachedToken;
+        }
+
+        if (data?.heartbeat && data.heartbeat.deviceId) {
+          const hbRes = await fetch('/api/agent/heartbeat', {
+            method: 'POST',
+            headers: authHeaders,
+            body: JSON.stringify(data.heartbeat),
+          });
+          if (hbRes.status === 404 || hbRes.status === 401) {
+            bridgeDeviceTokens.delete(data.heartbeat.deviceId);
+          }
+        }
+
+        if (Array.isArray(data?.events) && data.events.length > 0) {
+          for (const ev of data.events) {
+            const telRes = await fetch('/api/agent/telemetry', {
+              method: 'POST',
+              headers: authHeaders,
+              body: JSON.stringify(ev),
+            });
+            if (telRes.ok) {
+              const evalData = await telRes.json();
+              const evaluatedEvent: SecurityEventRecord | undefined = evalData?.evaluation?.event;
+              const evaluatedIncident: IncidentRecord | undefined =
+                evalData?.evaluation?.updatedIncident;
+              if (evaluatedEvent) {
+                setEvents((prev) =>
+                  prev.some((e) => e.eventId === evaluatedEvent.eventId)
+                    ? prev
+                    : [evaluatedEvent, ...prev]
+                );
+                setToastNotification(
+                  `[LIVE WINDOWS AGENT] Threat Detected: ${evaluatedEvent.processName} (${evaluatedEvent.ruleId})`
+                );
+              }
+              if (evaluatedIncident) {
+                setIncidents((prev) => {
+                  const idx = prev.findIndex(
+                    (i) => i.incidentId === evaluatedIncident.incidentId
+                  );
+                  if (idx >= 0) {
+                    const copy = [...prev];
+                    copy[idx] = evaluatedIncident;
+                    return copy;
+                  }
+                  return [evaluatedIncident, ...prev];
+                });
+                setSelectedIncidentId((prev) => prev || evaluatedIncident.incidentId);
+              }
+            }
+          }
+        }
+      } catch {
+        // Local bridge not active yet
+      }
+    };
+
+    fetchLiveDevices();
+    pollLocalBridge();
+    const pollInterval = setInterval(() => {
+      fetchLiveDevices();
+      pollLocalBridge();
+    }, 1500);
 
     const connectWs = () => {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -128,20 +289,90 @@ export default function App() {
       ws.onmessage = (msg) => {
         try {
           const parsed = JSON.parse(msg.data);
+
+          if (parsed.type === 'connection:established') {
+            if (Array.isArray(parsed.payload?.devices)) {
+              setDevices(parsed.payload.devices);
+            }
+            if (Array.isArray(parsed.payload?.events)) {
+              setEvents(
+                (parsed.payload.events as SecurityEventRecord[]).filter(
+                  (e) => !isDemoOrSimulatedEventOrIncident(e)
+                )
+              );
+            }
+            if (Array.isArray(parsed.payload?.incidents)) {
+              setIncidents(
+                (parsed.payload.incidents as IncidentRecord[]).filter(
+                  (inc) => !isDemoOrSimulatedEventOrIncident(inc)
+                )
+              );
+            }
+          }
+
+
+          if (parsed.type === 'device:registered' && parsed.payload?.device) {
+            const newDev: MonitoredDevice = parsed.payload.device;
+            setDevices((prev) => {
+              if (prev.some((d) => d.deviceId === newDev.deviceId)) {
+                return prev.map((d) => (d.deviceId === newDev.deviceId ? newDev : d));
+              }
+              return [newDev, ...prev];
+            });
+            setToastNotification(`[LIVE WINDOWS AGENT] Endpoint connected: ${newDev.hostname} (${newDev.deviceId})`);
+          }
+
+          if (parsed.type === 'device:heartbeat' && parsed.payload?.deviceId) {
+            const hb = parsed.payload;
+            setDevices((prev) => {
+              const existingIdx = prev.findIndex((d) => d.deviceId === hb.deviceId);
+              if (existingIdx < 0) {
+                return prev;
+              }
+              const updated = [...prev];
+              updated[existingIdx] = {
+                ...updated[existingIdx],
+                ...(hb.device || {}),
+                lastHeartbeat: hb.lastHeartbeat || new Date().toISOString(),
+                cpuOverheadPercent: hb.cpuOverheadPercent ?? updated[existingIdx].cpuOverheadPercent,
+                memoryFootprintMb: hb.memoryFootprintMb ?? updated[existingIdx].memoryFootprintMb,
+                encryptedQueueDepth: hb.encryptedQueueDepth ?? updated[existingIdx].encryptedQueueDepth,
+                gameSessionState: hb.gameSessionState ?? updated[existingIdx].gameSessionState,
+                emulatorName: hb.emulatorName || updated[existingIdx].emulatorName,
+                status: updated[existingIdx].riskScore >= 70 ? 'degraded' : 'healthy',
+              };
+              return updated;
+            });
+          }
+
+          if (parsed.type === 'device:updated' && parsed.payload?.device) {
+            const updatedDev: MonitoredDevice = parsed.payload.device;
+            setDevices((prev) =>
+              prev.map((d) => (d.deviceId === updatedDev.deviceId ? updatedDev : d))
+            );
+          }
+
+          if (parsed.type === 'device:disconnected' && parsed.payload?.deviceId) {
+            const discId = parsed.payload.deviceId;
+            setDevices((prev) => prev.filter((d) => d.deviceId !== discId));
+            setToastNotification(`[AGENT UNLINKED] Device disconnected: ${discId}`);
+          }
+
           if (parsed.type === 'telemetry:evaluated' && parsed.payload?.event) {
             const incomingEvent: SecurityEventRecord = parsed.payload.event;
             const incomingIncident: IncidentRecord | undefined =
               parsed.payload.updatedIncident;
 
-            // Idempotent event insertion
-            setEvents((prev) => {
-              if (prev.some((e) => e.eventId === incomingEvent.eventId)) {
-                return prev;
-              }
-              return [incomingEvent, ...prev];
-            });
+            if (!isDemoOrSimulatedEventOrIncident(incomingEvent)) {
+              setEvents((prev) => {
+                if (prev.some((e) => e.eventId === incomingEvent.eventId)) {
+                  return prev;
+                }
+                return [incomingEvent, ...prev];
+              });
+            }
 
-            if (incomingIncident) {
+            if (incomingIncident && !isDemoOrSimulatedEventOrIncident(incomingIncident)) {
               setIncidents((prev) => {
                 const idx = prev.findIndex(
                   (i) => i.incidentId === incomingIncident.incidentId
@@ -154,6 +385,19 @@ export default function App() {
                 return [incomingIncident, ...prev];
               });
               setSelectedIncidentId((prev) => prev || incomingIncident.incidentId);
+            }
+          }
+
+          if (parsed.type === 'threats:cleared') {
+            setEvents([]);
+            setIncidents([]);
+            setSelectedIncidentId(null);
+            if (Array.isArray(parsed.payload?.devices)) {
+              setDevices(parsed.payload.devices);
+            } else {
+              setDevices((prev) =>
+                prev.map((d) => ({ ...d, riskScore: 0, status: 'healthy' }))
+              );
             }
           }
         } catch (e) {
@@ -170,10 +414,14 @@ export default function App() {
     connectWs();
 
     return () => {
+      clearInterval(pollInterval);
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (ws) ws.close();
     };
   }, []);
+
+  // Authoritative Fleet Summary (Total Registered, Online, Offline, Revoked)
+  const fleetSummary = computeFleetSummary(devices);
 
   const recordAudit = useCallback(
     async (
@@ -209,36 +457,10 @@ export default function App() {
     setIsRunningScenario(scenarioId);
     try {
       const ownerId = currentUser?.uid || 'realtime_user';
-      // If no device exists yet, automatically register a real-time endpoint for the telemetry
-      let activeHost = devices[0]?.hostname || 'DESKTOP-WIN11-WORKSTATION';
-      let activeDevId = devices[0]?.deviceId;
-
-      if (!activeDevId) {
-        activeDevId = `dev-win11-${Date.now().toString(36)}`;
-        const autoDev: MonitoredDevice = {
-          deviceId: activeDevId,
-          ownerId,
-          hostname: activeHost,
-          osVersion: 'Windows 11 Pro 23H2 (Build 22631)',
-          agentVersion: '2.4.1-x64',
-          status: 'healthy',
-          emulatorName: 'BlueStacks 5 (Pie64)',
-          gameSessionState: 'active_match',
-          freeFirePackage: 'com.dts.freefireth',
-          integrityStatus: 'verified',
-          riskScore: 0,
-          isSimulated: false,
-          lastHeartbeat: new Date().toISOString(),
-          cpuOverheadPercent: 0.38,
-          memoryFootprintMb: 17.8,
-          encryptedQueueDepth: 0,
-          autoStartEnabled: true,
-        };
-        setDevices([autoDev]);
-        if (currentUser) {
-          await persistNewDeviceToFirestore(autoDev);
-        }
-      }
+      // Never invent a fake production device for synthetic test scenarios
+      const activeOnlineDevice = fleetSummary.onlineDevices[0];
+      const activeHost = activeOnlineDevice?.hostname || 'TEST-SANDBOX';
+      const activeDevId = activeOnlineDevice?.deviceId || 'test-sandbox-fixture';
 
       const response = await fetch('/api/harness/scenario', {
         method: 'POST',
@@ -272,70 +494,17 @@ export default function App() {
       if (evaluation?.event) {
         const newEvent: SecurityEventRecord = {
           ...evaluation.event,
-          isSimulated: false, // Real-time evaluated record
+          isSimulated: true,
         };
-        const updatedInc: IncidentRecord | undefined = evaluation.updatedIncident
-          ? { ...evaluation.updatedIncident, isSimulated: false }
-          : undefined;
-
-        setEvents((prev) =>
-          prev.some((e) => e.eventId === newEvent.eventId)
-            ? prev
-            : [newEvent, ...prev]
-        );
-
-        // Update device risk score & heartbeat
-        setDevices((prev) =>
-          prev.map((d) => {
-            if (d.deviceId !== newEvent.deviceId) return d;
-            const nextRisk = Math.min(100, d.riskScore + (evaluation.riskDelta || 0));
-            const nextStatus =
-              scenarioId === 'SCENARIO_6_DISCONNECTED_AGENT'
-                ? 'disconnected'
-                : nextRisk >= 70
-                ? 'degraded'
-                : d.status;
-            const updatedDev: MonitoredDevice = {
-              ...d,
-              riskScore: nextRisk,
-              status: nextStatus,
-              lastHeartbeat: new Date().toISOString(),
-            };
-            if (currentUser) {
-              persistDeviceUpdateToFirestore(updatedDev).catch(console.error);
-            }
-            return updatedDev;
-          })
-        );
-
-        if (currentUser) {
-          await persistSecurityEventToFirestore(newEvent);
-        }
-
-        if (updatedInc) {
-          const isNewIncident = !incidents.some(
-            (i) => i.incidentId === updatedInc.incidentId
-          );
-          setIncidents((prev) => {
-            if (isNewIncident) return [updatedInc, ...prev];
-            return prev.map((i) =>
-              i.incidentId === updatedInc.incidentId ? updatedInc : i
-            );
-          });
-          setSelectedIncidentId(updatedInc.incidentId);
-          if (currentUser) {
-            await persistIncidentToFirestore(updatedInc, isNewIncident);
-          }
-        }
 
         await recordAudit(
-          'REALTIME_TELEMETRY_EVALUATED',
+          'RULE_VERIFICATION_SCENARIO_TESTED',
           'session',
           newEvent.eventId,
-          `Evaluated ${scenarioId}: ${evaluation.explanation}`
+          `Isolated Rule Verification (${scenarioId}): ${evaluation.explanation}`
         );
 
-        showToast(`Evaluated [${newEvent.ruleId}]: ${evaluation.explanation}`);
+        showToast(`[ISOLATED RULE VERIFICATION] ${newEvent.ruleId}: ${evaluation.explanation}`);
       }
     } catch (error) {
       console.error('Failed to trigger scenario:', error);
@@ -401,6 +570,39 @@ export default function App() {
     showToast(`Registered endpoint ${newDevice.hostname} in real time.`);
   };
 
+  const handleDisconnectDevice = async (deviceId?: string) => {
+    try {
+      await fetch('/api/agent/disconnect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceId }),
+      });
+
+      if (deviceId) {
+        setDevices((prev) => prev.filter((d) => d.deviceId !== deviceId));
+        showToast(`Disconnected and unlinked Windows PC (${deviceId})`);
+      } else {
+        setDevices([]);
+        showToast('All connected Windows PCs have been unlinked.');
+      }
+
+      await recordAudit(
+        'DEVICE_DISCONNECTED',
+        'device',
+        deviceId || 'all',
+        `User disconnected Windows agent ${deviceId || 'endpoints'} from dashboard.`
+      );
+    } catch (err) {
+      console.error('Error disconnecting device:', err);
+      if (deviceId) {
+        setDevices((prev) => prev.filter((d) => d.deviceId !== deviceId));
+      } else {
+        setDevices([]);
+      }
+      showToast('Agent unlinked locally.');
+    }
+  };
+
   const handleUpdateRule = async (
     updatedRule: DetectionRuleRecord,
     auditDetail: string
@@ -415,7 +617,28 @@ export default function App() {
     showToast(auditDetail);
   };
 
+  const handleClearThreats = async () => {
+    try {
+      await fetch('/api/agent/clear-threats', { method: 'POST' });
+    } catch {}
+    setEvents([]);
+    setIncidents([]);
+    setSelectedIncidentId(null);
+    setDevices((prev) =>
+      prev.map((d) => ({
+        ...d,
+        riskScore: 0,
+        status: d.status === 'degraded' ? 'healthy' : d.status,
+      }))
+    );
+    showToast('All security alerts and threat cases cleared. Connected PC risk score reset to 0.');
+  };
+
   const handleClearAllRecords = async () => {
+    try {
+      await fetch('/api/agent/clear-threats', { method: 'POST' });
+      await fetch('/api/agent/disconnect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+    } catch {}
     setDevices([]);
     setEvents([]);
     setIncidents([]);
@@ -431,153 +654,192 @@ export default function App() {
     <div className="min-h-screen bg-[#0B0F19] text-slate-100 flex flex-col">
       {/* Strict 3-Zone Top Bar Contract */}
       <header className="flex items-center justify-between gap-8 px-6 py-3.5 border-b border-slate-800/90 bg-[#0B0F19]">
-        {/* Zone 1: Single text element wordmark */}
-        <a
-          href="#overview"
-          onClick={(e) => {
-            e.preventDefault();
-            setActiveTab('overview');
-          }}
-          className="text-lg font-bold tracking-tight text-slate-100 font-display whitespace-nowrap shrink-0"
-        >
-          Sentinel AC
-        </a>
+        {/* Zone 1: Wordmark & Real Protection Status */}
+        <div className="flex items-center gap-3">
+          <a
+            href="#overview"
+            onClick={(e) => {
+              e.preventDefault();
+              setActiveTab('overview');
+            }}
+            className="text-lg font-bold tracking-tight text-slate-100 font-display whitespace-nowrap shrink-0 flex items-center gap-2"
+          >
+            <span className="w-2.5 h-2.5 rounded-full bg-sky-400" />
+            <span>Sentinel AC</span>
+          </a>
 
-        {/* Zone 2: 5 concise single-line text navigation links */}
-        <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-400">
+          {/* Real Live Protection Status Indicator */}
+          {fleetSummary.onlineCount > 0 ? (
+            <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/15 border border-emerald-500/40 text-emerald-400">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Protected ({fleetSummary.onlineCount} Online)
+            </span>
+          ) : (
+            <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/15 border border-amber-500/40 text-amber-400">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+              Agent Offline (0 Connected)
+            </span>
+          )}
+        </div>
+
+        {/* Zone 2: Navigation Links */}
+        <nav className="flex flex-wrap items-center gap-4 md:gap-6 text-xs font-medium text-slate-400">
           <button
             onClick={() => setActiveTab('overview')}
             className={`hover:text-slate-100 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-              activeTab === 'overview' ? 'text-slate-100 underline underline-offset-8 decoration-sky-400' : ''
+              activeTab === 'overview' ? 'text-slate-100 underline underline-offset-8 decoration-sky-400 font-semibold' : ''
             }`}
           >
             Overview
           </button>
           <button
-            onClick={() => setActiveTab('live')}
-            className={`hover:text-slate-100 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-              activeTab === 'live' ? 'text-slate-100 underline underline-offset-8 decoration-sky-400' : ''
+            onClick={() => setActiveTab('connect')}
+            className={`hover:text-slate-100 transition-colors whitespace-nowrap shrink-0 cursor-pointer flex items-center gap-1.5 ${
+              activeTab === 'connect' ? 'text-slate-100 underline underline-offset-8 decoration-sky-400 font-semibold' : ''
             }`}
           >
-            Live Stream
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${
+                fleetSummary.onlineCount > 0 ? 'bg-emerald-400' : 'bg-amber-400'
+              }`}
+            />
+            Endpoints / PCs ({fleetSummary.onlineCount} Online / {fleetSummary.totalRegistered} Enrolled)
+          </button>
+          <button
+            onClick={() => setActiveTab('controlpanel')}
+            className={`hover:text-slate-100 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+              activeTab === 'controlpanel' ? 'text-slate-100 underline underline-offset-8 decoration-sky-400 font-semibold' : ''
+            }`}
+          >
+            Windows Control Panel
+          </button>
+          <button
+            onClick={() => setActiveTab('wizard')}
+            className={`hover:text-slate-100 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+              activeTab === 'wizard' ? 'text-slate-100 underline underline-offset-8 decoration-sky-400 font-semibold' : ''
+            }`}
+          >
+            Setup Wizard
+          </button>
+          <button
+            onClick={() => setActiveTab('live')}
+            className={`hover:text-slate-100 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+              activeTab === 'live' ? 'text-slate-100 underline underline-offset-8 decoration-sky-400 font-semibold' : ''
+            }`}
+          >
+            Security Alerts ({events.length})
           </button>
           <button
             onClick={() => setActiveTab('investigation')}
             className={`hover:text-slate-100 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-              activeTab === 'investigation' ? 'text-slate-100 underline underline-offset-8 decoration-sky-400' : ''
+              activeTab === 'investigation' ? 'text-slate-100 underline underline-offset-8 decoration-sky-400 font-semibold' : ''
             }`}
           >
-            Investigation
+            Threats ({incidents.length})
           </button>
           <button
-            onClick={() => setActiveTab('devices')}
+            onClick={() => setActiveTab('advanced')}
             className={`hover:text-slate-100 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-              activeTab === 'devices' ? 'text-slate-100 underline underline-offset-8 decoration-sky-400' : ''
+              activeTab === 'advanced' ? 'text-slate-100 underline underline-offset-8 decoration-sky-400 font-semibold' : ''
             }`}
           >
-            Endpoints
-          </button>
-          <button
-            onClick={() => setActiveTab('rules')}
-            className={`hover:text-slate-100 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-              activeTab === 'rules' ? 'text-slate-100 underline underline-offset-8 decoration-sky-400' : ''
-            }`}
-          >
-            Rules
+            Advanced Tools
           </button>
         </nav>
 
         {/* Zone 3: 1 primary action */}
         <div className="flex items-center gap-3 shrink-0">
+          <button
+            onClick={() => setActiveTab('controlpanel')}
+            className="px-3.5 py-1.5 text-xs font-semibold text-slate-950 bg-sky-400 hover:bg-sky-300 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-sm"
+          >
+            Control Panel
+          </button>
+
           {currentUser ? (
             <button
               onClick={() => signOutUser()}
-              className="px-4 py-2 text-xs font-medium text-slate-200 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              className="px-3.5 py-1.5 text-xs font-medium text-slate-200 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               Sign Out ({currentUser.email?.split('@')[0]})
             </button>
           ) : (
             <button
               onClick={() => signInWithGoogle().catch(console.error)}
-              className="px-4 py-2 text-xs font-medium text-slate-950 bg-sky-400 hover:bg-sky-300 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              className="px-3.5 py-1.5 text-xs font-medium text-slate-200 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
-              Sign In with Google
+              Sign In
             </button>
           )}
         </div>
       </header>
 
-      {/* Workspace Body: Sidebar (260px) + Main Content Viewport */}
-      <div className="flex-1 flex flex-col lg:flex-row">
-        <aside className="w-full lg:w-[260px] shrink-0 border-b lg:border-b-0 lg:border-r border-slate-800/90 bg-[#0B0F19] p-4 flex flex-col justify-between gap-6">
-          <div className="space-y-1">
-            <div className="px-3 py-2 text-xs font-mono text-slate-400">
-              Free Fire Emulator EDR
-            </div>
-            {(
-              [
-                { id: 'overview', label: 'Overview & Operations' },
-                { id: 'live', label: `Live Stream (${events.length})` },
-                { id: 'investigation', label: `Threat Investigation (${incidents.length})` },
-                { id: 'devices', label: `Endpoints (${devices.length})` },
-                { id: 'rules', label: `Detection Rules (${rules.length})` },
-                { id: 'tests', label: 'Engine Tests & C++ Code' },
-                { id: 'settings', label: `Settings & Audit (${auditLogs.length})` },
-              ] as const
-            ).map((navItem) => (
-              <button
-                key={navItem.id}
-                onClick={() => setActiveTab(navItem.id)}
-                className={`w-full text-left px-3 py-2.5 rounded-md text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                  activeTab === navItem.id
-                    ? 'bg-slate-800/90 text-slate-100'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
-                }`}
-              >
-                {navItem.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="p-3.5 rounded-md bg-[#111827] border border-slate-800/90 space-y-2 text-xs">
-            <div className="font-semibold text-slate-200">
-              Real-Time SOC Status
-            </div>
-            <div className="font-mono text-slate-400">
-              Database: {currentUser ? 'Firestore Live' : 'Local Memory'}
-            </div>
-            <div className="font-mono text-slate-400">
-              Role: <span className="text-sky-400">{userRole}</span>
-            </div>
-            <div className="font-mono text-slate-400 flex items-center gap-1.5">
-              <span>Stream:</span>
-              <span className={`w-1.5 h-1.5 rounded-full ${wsConnected ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-              <span>{wsConnected ? 'WebSocket Live' : 'Connecting'}</span>
-            </div>
-          </div>
-        </aside>
-
+      {/* Main Content Viewport */}
+      <div className="flex-1 flex flex-col">
         <main className="flex-1 p-6 lg:p-8 max-w-[1440px] w-full mx-auto space-y-6">
           {toastNotification && (
-            <div className="bg-sky-950/60 border border-sky-500/50 text-sky-200 px-4 py-3 rounded-md text-xs font-mono flex items-center justify-between">
+            <div className="bg-sky-950/60 border border-sky-500/50 text-sky-200 px-4 py-3 rounded-lg text-xs font-mono flex items-center justify-between shadow-lg">
               <span>{toastNotification}</span>
               <button
                 onClick={() => setToastNotification(null)}
                 className="text-sky-300 hover:text-white ml-4 cursor-pointer"
               >
-                Dismiss
+                ✕
               </button>
             </div>
           )}
 
           {activeTab === 'overview' && (
             <OverviewTab
-              devices={devices}
+              devices={fleetSummary.devices}
               events={events}
               incidents={incidents}
-              onTriggerScenario={handleTriggerScenario}
-              isRunningScenario={isRunningScenario}
+              onNavigateTab={(t) => setActiveTab(t as ActiveTab)}
               onSelectIncident={setSelectedIncidentId}
+              onSelectDeviceForLogs={(devId) => {
+                setSelectedDeviceFilter(devId);
+                setActiveTab('live');
+              }}
+              onDisconnectDevice={handleDisconnectDevice}
+            />
+          )}
+
+          {activeTab === 'controlpanel' && (
+            <WindowsControlPanelTab
+              devices={fleetSummary.devices}
+              onRegisterDevice={handleRegisterDevice}
+              onDisconnectDevice={handleDisconnectDevice}
+              onNavigateToWizard={() => setActiveTab('wizard')}
+              onShowToast={showToast}
+            />
+          )}
+
+          {activeTab === 'connect' && (
+            <ConnectMyPcTab
+              devices={fleetSummary.devices}
+              events={events}
+              onRegisterDevice={handleRegisterDevice}
+              onDisconnectDevice={handleDisconnectDevice}
+              onNavigateTab={(t) => setActiveTab(t as ActiveTab)}
+              onSelectDeviceForLogs={(devId) => {
+                setSelectedDeviceFilter(devId);
+                setActiveTab('live');
+              }}
+              onRefreshDevices={() => {
+                fetch('/api/agent/devices')
+                  .then((r) => r.json())
+                  .then((data) => {
+                    if (Array.isArray(data?.devices)) setDevices(data.devices);
+                  })
+                  .catch(() => {});
+              }}
+            />
+          )}
+
+          {activeTab === 'wizard' && (
+            <SetupWizard
+              devices={fleetSummary.devices}
+              onRegisterDevice={handleRegisterDevice}
               onNavigateTab={(t) => setActiveTab(t as ActiveTab)}
             />
           )}
@@ -585,9 +847,11 @@ export default function App() {
           {activeTab === 'live' && (
             <LiveMonitoringTab
               events={events}
+              devices={fleetSummary.devices}
               wsConnected={wsConnected}
-              onTriggerScenario={handleTriggerScenario}
-              isRunningScenario={isRunningScenario}
+              selectedDeviceFilter={selectedDeviceFilter}
+              onChangeDeviceFilter={setSelectedDeviceFilter}
+              onClearAllThreats={handleClearThreats}
             />
           )}
 
@@ -599,23 +863,28 @@ export default function App() {
               onSelectIncident={setSelectedIncidentId}
               userRole={userRole}
               onUpdateIncident={handleUpdateIncident}
+              onClearAllThreats={handleClearThreats}
             />
           )}
 
-          {activeTab === 'devices' && (
-            <DeviceManagementTab
-              devices={devices}
-              userRole={userRole}
-              onUpdateDevice={handleUpdateDevice}
-              onRegisterDevice={handleRegisterDevice}
-            />
-          )}
-
-          {activeTab === 'rules' && (
-            <DetectionRulesTab
+          {activeTab === 'advanced' && (
+            <AdvancedSocTab
               rules={rules}
               userRole={userRole}
+              onChangeRole={(newRole) => {
+                setUserRole(newRole);
+                recordAudit(
+                  'RBAC_ROLE_SWITCHED',
+                  'policy',
+                  newRole,
+                  `Switched active role to ${newRole}.`
+                );
+              }}
+              auditLogs={auditLogs}
               onUpdateRule={handleUpdateRule}
+              onClearAllRecords={handleClearAllRecords}
+              onTriggerScenario={handleTriggerScenario}
+              isRunningScenario={isRunningScenario}
               onLogRuleBundleVerification={(bundleId, valid, reason) => {
                 recordAudit(
                   valid ? 'SIGNED_RULE_BUNDLE_APPLIED' : 'INVALID_RULE_BUNDLE_REJECTED',
@@ -626,27 +895,17 @@ export default function App() {
               }}
             />
           )}
-
-          {activeTab === 'tests' && <ArchitectureAndTestsTab />}
-
-          {activeTab === 'settings' && (
-            <SettingsAndAuditTab
-              userRole={userRole}
-              onChangeRole={(newRole) => {
-                setUserRole(newRole);
-                recordAudit(
-                  'RBAC_ROLE_SWITCHED',
-                  'policy',
-                  newRole,
-                  `Switched active dashboard verification role to ${newRole}.`
-                );
-              }}
-              auditLogs={auditLogs}
-              onClearAllRecords={handleClearAllRecords}
-            />
-          )}
         </main>
       </div>
+
+      <ConnectAgentModal
+        isOpen={isConnectModalOpen}
+        onClose={() => setIsConnectModalOpen(false)}
+        onRegisterDevice={(newDev) => {
+          handleRegisterDevice(newDev);
+          setActiveTab('connect');
+        }}
+      />
     </div>
   );
 }

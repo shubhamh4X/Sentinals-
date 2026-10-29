@@ -594,6 +594,167 @@
         "details",
         "createdAt"
       ]
+    },
+    "AgentRelayHeartbeat": {
+      "title": "AgentRelayHeartbeat",
+      "description": "Token-authenticated cross-PC endpoint enrollment and heartbeat relay document for Windows agents.",
+      "type": "object",
+      "properties": {
+        "deviceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "hostname": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "osVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "agentVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "emulatorName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "gameSessionState": {
+          "type": "string",
+          "enum": ["idle", "launching", "active_match", "terminated"]
+        },
+        "freeFirePackage": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "status": {
+          "type": "string",
+          "enum": ["healthy", "degraded", "disconnected"]
+        },
+        "enrollmentToken": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 128,
+          "pattern": "^enr_[a-zA-Z0-9_]+$"
+        },
+        "cpuOverheadPercent": {
+          "type": "number"
+        },
+        "memoryFootprintMb": {
+          "type": "number"
+        },
+        "observedUtc": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "deviceId",
+        "hostname",
+        "osVersion",
+        "agentVersion",
+        "emulatorName",
+        "gameSessionState",
+        "freeFirePackage",
+        "status",
+        "enrollmentToken",
+        "cpuOverheadPercent",
+        "memoryFootprintMb",
+        "observedUtc"
+      ]
+    },
+    "AgentRelayTelemetry": {
+      "title": "AgentRelayTelemetry",
+      "description": "Token-authenticated cross-PC endpoint security telemetry relay document for Windows agents.",
+      "type": "object",
+      "properties": {
+        "nonce": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "deviceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "hostname": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "emulator": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "sessionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "indicatorType": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "processName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "processPath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "sha256": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "signerIdentity": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "observedTimestamp": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "enrollmentToken": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 128,
+          "pattern": "^enr_[a-zA-Z0-9_]+$"
+        }
+      },
+      "required": [
+        "nonce",
+        "deviceId",
+        "hostname",
+        "emulator",
+        "sessionId",
+        "indicatorType",
+        "processName",
+        "processPath",
+        "sha256",
+        "signerIdentity",
+        "observedTimestamp",
+        "enrollmentToken"
+      ]
     }
   },
   "firestore": {
@@ -624,6 +785,14 @@
     "/auditLogs/{logId}": {
       "schema": { "$ref": "#/entities/AuditLogRecord" },
       "description": "Immutable security operations audit log."
+    },
+    "/agent_relay_heartbeats/{deviceId}": {
+      "schema": { "$ref": "#/entities/AgentRelayHeartbeat" },
+      "description": "Cross-PC Windows agent registration and heartbeat cloud relay."
+    },
+    "/agent_relay_telemetry/{nonce}": {
+      "schema": { "$ref": "#/entities/AgentRelayTelemetry" },
+      "description": "Cross-PC Windows agent security telemetry cloud relay."
     }
   }
 }

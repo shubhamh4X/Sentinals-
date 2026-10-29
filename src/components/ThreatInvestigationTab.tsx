@@ -1,9 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import {
-  IncidentRecord,
-  SecurityEventRecord,
-  UserRole,
-} from '../../shared-schemas/types.ts';
+import React, { useState } from 'react';
+import { IncidentRecord, SecurityEventRecord, UserRole } from '../../shared-schemas/types.ts';
 
 interface ThreatInvestigationTabProps {
   incidents: IncidentRecord[];
@@ -17,6 +13,7 @@ interface ThreatInvestigationTabProps {
     notes: string,
     actionDescription: string
   ) => void;
+  onClearAllThreats?: () => void;
 }
 
 export const ThreatInvestigationTab: React.FC<ThreatInvestigationTabProps> = ({
@@ -26,338 +23,309 @@ export const ThreatInvestigationTab: React.FC<ThreatInvestigationTabProps> = ({
   onSelectIncident,
   userRole,
   onUpdateIncident,
+  onClearAllThreats,
 }) => {
-  const activeIncident =
-    incidents.find((i) => i.incidentId === selectedIncidentId) ||
-    incidents[0] ||
-    null;
+  const [filterStatus, setFilterStatus] = useState<'all' | 'open' | 'investigating' | 'confirmed_violation' | 'dismissed_false_positive'>('all');
+  const [activeNotes, setActiveNotes] = useState<{ [incidentId: string]: string }>({});
+  const [actionFeedback, setActionFeedback] = useState<{ [incidentId: string]: string }>({});
 
-  const [notesDraft, setNotesDraft] = useState('');
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const filteredIncidents = incidents.filter((inc) => {
+    if (filterStatus === 'all') return true;
+    return inc.status === filterStatus;
+  });
 
-  useEffect(() => {
-    if (activeIncident) {
-      setNotesDraft(activeIncident.analystNotes || '');
-    } else {
-      setNotesDraft('');
+  const getSuspicionReason = (inc: IncidentRecord): string => {
+    if (inc.primaryRuleId?.startsWith('PROC-001') || inc.title.toLowerCase().includes('cheat')) {
+      return 'The detected program matches the cryptographic signature of a known cheat tool or injector used to manipulate game data.';
     }
-  }, [activeIncident?.incidentId, activeIncident?.analystNotes]);
+    if (inc.primaryRuleId?.startsWith('MEM') || inc.evidenceSummary?.toLowerCase().includes('write')) {
+      return 'An unauthorized program attempted to open a direct write handle to emulator memory while Free Fire was active.';
+    }
+    if (inc.primaryRuleId?.startsWith('ESP') || inc.evidenceSummary?.toLowerCase().includes('overlay')) {
+      return 'A transparent, click-through window was drawing over the game screen, which is typical behavior of aimbots or ESP wallhacks.';
+    }
+    if (inc.primaryRuleId?.startsWith('EMU') || inc.evidenceSummary?.toLowerCase().includes('libil2cpp')) {
+      return 'The core Free Fire application library (libil2cpp.so) has been tampered with or replaced.';
+    }
+    return inc.evidenceSummary || 'Activity deviated from standard Free Fire gameplay baseline.';
+  };
 
-  const canModify =
-    userRole === UserRole.ADMINISTRATOR ||
-    userRole === UserRole.SECURITY_ANALYST;
-
-  const relatedEvents = activeIncident
-    ? events.filter((e) => e.deviceId === activeIncident.deviceId)
-    : [];
-
-  const handleExportIncidentReport = (inc: IncidentRecord) => {
-    const exportPayload = {
-      reportType: 'Sentinel_AC_Forensic_Incident_Report',
-      schemaVersion: '1.2.0',
-      exportedAt: new Date().toISOString(),
-      incident: inc,
-      correlatedTelemetryEvents: relatedEvents,
-    };
-    const blob = new Blob([JSON.stringify(exportPayload, null, 2)], {
-      type: 'application/json',
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${inc.incidentId}_forensic_report.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const handleAction = (
+    inc: IncidentRecord,
+    newStatus: IncidentRecord['status'],
+    actionLabel: string
+  ) => {
+    const note = activeNotes[inc.incidentId] || inc.analystNotes || '';
+    onUpdateIncident(
+      inc.incidentId,
+      newStatus,
+      note,
+      `Analyst marked incident "${inc.title}" as ${actionLabel}. Note: ${note || 'No notes provided'}`
+    );
+    setActionFeedback((prev) => ({
+      ...prev,
+      [inc.incidentId]: `Updated status to "${actionLabel}". Recorded in audit trail.`,
+    }));
+    setTimeout(() => {
+      setActionFeedback((prev) => {
+        const copy = { ...prev };
+        delete copy[inc.incidentId];
+        return copy;
+      });
+    }, 3500);
   };
 
   return (
-    <div className="space-y-6">
-      <div className="bg-[#111827] border border-slate-800 rounded-lg p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div className="space-y-6 max-w-5xl mx-auto">
+      {/* 1. Header with Policy Notice */}
+      <div className="bg-[#111827] border border-slate-800 rounded-xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-base font-semibold text-slate-100">
-            Threat Investigation & Evidence Provenance Console
-          </h2>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Correlate multi-module indicators, review false-positive guidance, record analyst notes, and export forensic case reports in real time.
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
+            <h2 className="text-base font-semibold text-slate-100">
+              Threat Investigation &amp; Case Review
+            </h2>
+          </div>
+          <p className="text-xs text-slate-400 mt-1">
+            Review suspicious activity detected by Sentinel AC. Every case includes supporting evidence and confidence scores.
           </p>
         </div>
-        <div className="text-xs font-mono text-slate-400 shrink-0">
-          Active Role: <span className="text-sky-400">{userRole}</span>
+
+        <div className="flex flex-wrap items-center gap-2 text-xs font-mono shrink-0">
+          <span className="px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-slate-300">
+            {incidents.filter((i) => i.status === 'open' || i.status === 'investigating').length} Active Threat Cases
+          </span>
+          {onClearAllThreats && (incidents.length > 0 || events.length > 0) && (
+            <button
+              onClick={onClearAllThreats}
+              className="px-3.5 py-1.5 bg-rose-950/60 hover:bg-rose-900/80 border border-rose-500/40 text-rose-300 rounded-lg font-sans font-semibold transition-colors cursor-pointer"
+            >
+              Clear All Threats
+            </button>
+          )}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left List of Incidents */}
-        <div className="lg:col-span-4 bg-[#111827] border border-slate-800 rounded-lg divide-y divide-slate-800">
-          <div className="p-4">
-            <h3 className="text-xs font-semibold text-slate-300">
-              Correlated Investigation Cases ({incidents.length})
-            </h3>
-          </div>
-          {incidents.length === 0 ? (
-            <div className="p-8 text-xs text-slate-400 text-center leading-relaxed">
-              Zero security incidents recorded. System is actively monitoring connected game sessions. Correlated threat cases will appear here in real time.
-            </div>
-          ) : (
-            incidents.map((inc) => {
-              const isSelected = activeIncident?.incidentId === inc.incidentId;
-              return (
-                <button
-                  key={inc.incidentId}
-                  onClick={() => onSelectIncident(inc.incidentId)}
-                  className={`w-full text-left p-4 transition-colors cursor-pointer space-y-1.5 ${
-                    isSelected ? 'bg-sky-950/30' : 'hover:bg-slate-900/60'
-                  }`}
-                >
-                  <div className="flex items-center justify-between text-xs font-mono">
-                    <span className="text-sky-400">
-                      {inc.primaryRuleId} · {inc.hostname}
-                    </span>
-                    <span
-                      className={
-                        inc.severity === 'critical'
-                          ? 'text-rose-400 uppercase font-semibold'
-                          : inc.severity === 'high'
-                          ? 'text-amber-400 uppercase font-semibold'
-                          : 'text-slate-300 uppercase'
-                      }
-                    >
-                      {inc.severity}
-                    </span>
-                  </div>
-                  <div className="text-sm font-medium text-slate-100 line-clamp-2">
-                    {inc.title}
-                  </div>
-                  <div className="text-xs font-mono tabular-nums text-slate-400">
-                    Status: {inc.status} · Risk: {inc.aggregatedRiskScore}/100 · {inc.correlatedEventCount} events
-                  </div>
-                </button>
-              );
-            })
-          )}
+      {/* 2. Anti-Cheat Policy Callout Banner */}
+      <div className="p-4 bg-sky-950/20 border border-sky-500/40 rounded-xl flex items-start gap-3 text-xs">
+        <span className="text-sky-400 text-sm">⚖️</span>
+        <div className="space-y-0.5 text-slate-300 leading-relaxed">
+          <span className="font-semibold text-sky-300">Responsible Security Policy:</span>{' '}
+          Never automatically ban anyone or declare cheating confirmed based on a single uncertain indicator. Always corroborate evidence, verify software provenance, and consider legitimate background tools (e.g., Discord overlays, game recording software).
         </div>
+      </div>
 
-        {/* Right Incident Forensic Detail & Disposition */}
-        <div className="lg:col-span-8 bg-[#111827] border border-slate-800 rounded-lg p-6 space-y-6">
-          {activeIncident ? (
-            <>
-              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 border-b border-slate-800 pb-4">
-                <div className="space-y-1">
-                  <div className="text-xs font-mono text-sky-400">
-                    Case ID: {activeIncident.incidentId} · [LIVE INVESTIGATION] · Status: {activeIncident.status}
-                  </div>
-                  <h3 className="text-lg font-semibold text-slate-100">
-                    {activeIncident.title}
-                  </h3>
-                  <div className="text-xs font-mono tabular-nums text-slate-400">
-                    Device: {activeIncident.hostname} ({activeIncident.deviceId}) · Emulator: {activeIncident.emulator}
-                  </div>
-                </div>
+      {/* 3. Filter Bar */}
+      <div className="flex flex-wrap items-center gap-2">
+        {(
+          [
+            { id: 'all', label: `All Cases (${incidents.length})` },
+            { id: 'open', label: 'Open' },
+            { id: 'investigating', label: 'Investigating' },
+            { id: 'confirmed_violation', label: 'Confirmed Violations' },
+            { id: 'dismissed_false_positive', label: 'Dismissed False Positives' },
+          ] as const
+        ).map((st) => (
+          <button
+            key={st.id}
+            onClick={() => setFilterStatus(st.id)}
+            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
+              filterStatus === st.id
+                ? 'bg-sky-400 text-slate-950 font-semibold'
+                : 'bg-[#111827] text-slate-400 hover:text-slate-200 border border-slate-800'
+            }`}
+          >
+            {st.label}
+          </button>
+        ))}
+      </div>
 
-                <button
-                  onClick={() => handleExportIncidentReport(activeIncident)}
-                  className="px-3.5 py-2 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-100 rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-                >
-                  Export Incident Report (JSON)
-                </button>
-              </div>
+      {/* 4. Incident Cards (Requirement 5) */}
+      {filteredIncidents.length === 0 ? (
+        <div className="bg-[#111827] border border-slate-800 rounded-xl p-12 text-center space-y-2">
+          <div className="text-sm font-semibold text-slate-200">No Threat Incidents Found</div>
+          <p className="text-xs text-slate-400 max-w-md mx-auto">
+            {incidents.length === 0
+              ? 'Zero threat incidents recorded. As real-time security events trigger detection thresholds, correlated incident cards will appear here for review.'
+              : 'No incidents match the selected status filter.'}
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {filteredIncidents.map((inc) => {
+            const suspicionReason = getSuspicionReason(inc);
+            const related = events.filter((e) => e.deviceId === inc.deviceId);
 
-              {/* Scoring & Limitations Row */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="p-4 rounded-md bg-[#0B0F19] border border-slate-800/80">
-                  <div className="text-xs text-slate-400">Aggregated Risk Score</div>
-                  <div className="text-2xl font-semibold font-mono tabular-nums text-rose-400 mt-1">
-                    {activeIncident.aggregatedRiskScore}/100
-                  </div>
-                  <div className="text-xs text-slate-400 mt-1 font-mono">
-                    Correlated Events: {activeIncident.correlatedEventCount}
-                  </div>
-                </div>
-
-                <div className="p-4 rounded-md bg-[#0B0F19] border border-slate-800/80">
-                  <div className="text-xs text-slate-400">Detection Confidence</div>
-                  <div className="text-2xl font-semibold font-mono tabular-nums text-sky-400 mt-1">
-                    {activeIncident.confidenceScore}%
-                  </div>
-                  <div className="text-xs text-slate-400 mt-1 font-mono">
-                    Primary Rule: {activeIncident.primaryRuleId}
-                  </div>
-                </div>
-
-                <div className="p-4 rounded-md bg-[#0B0F19] border border-slate-800/80">
-                  <div className="text-xs text-slate-400">Digital Signature Status</div>
-                  <div className="text-sm font-medium font-mono text-slate-200 mt-1 line-clamp-2">
-                    {activeIncident.digitalSignature}
-                  </div>
-                </div>
-              </div>
-
-              {/* Forensic Artifact Provenance */}
-              <div className="space-y-3 text-xs bg-[#0B0F19] border border-slate-800/80 rounded-md p-4">
-                <div className="font-semibold text-slate-200">
-                  Artifact & Module Provenance
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div>
-                    <span className="text-slate-400">Executable / Module Path:</span>
-                    <div className="font-mono text-slate-200 break-all mt-0.5">
-                      {activeIncident.executablePath}
+            return (
+              <div
+                key={inc.incidentId}
+                className={`bg-[#111827] border rounded-xl p-6 space-y-5 transition-all ${
+                  selectedIncidentId === inc.incidentId
+                    ? 'border-sky-500/80 shadow-lg shadow-sky-950/20'
+                    : 'border-slate-800 hover:border-slate-700'
+                }`}
+              >
+                {/* Card Top: Title, Severity, and Status */}
+                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 pb-4 border-b border-slate-800">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase ${
+                          inc.severity === 'critical'
+                            ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                            : inc.severity === 'high'
+                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                            : 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
+                        }`}
+                      >
+                        {inc.severity} Threat
+                      </span>
+                      <span className="text-xs font-mono text-slate-400">
+                        Case ID: {inc.incidentId} · Rule: {inc.primaryRuleId}
+                      </span>
+                    </div>
+                    <h3 className="text-base font-bold text-slate-100">{inc.title}</h3>
+                    <div className="text-xs text-slate-400 font-mono">
+                      Target Host: {inc.hostname} · Emulator: {inc.emulator || 'BlueStacks / LDPlayer'}
                     </div>
                   </div>
-                  <div>
-                    <span className="text-slate-400">File SHA-256 Digest:</span>
-                    <div className="font-mono text-slate-200 break-all mt-0.5">
-                      {activeIncident.fileSha256}
-                    </div>
-                  </div>
-                </div>
-                <div className="pt-2 border-t border-slate-800/80">
-                  <span className="text-slate-400">Evidence Correlation Summary:</span>
-                  <p className="text-slate-200 mt-0.5 leading-relaxed">
-                    {activeIncident.evidenceSummary}
-                  </p>
-                </div>
-                <div className="pt-2 border-t border-slate-800/80">
-                  <span className="text-amber-400 font-medium">Defensible Limitations & False-Positive Notice:</span>
-                  <p className="text-slate-300 mt-0.5 leading-relaxed">
-                    {activeIncident.limitationsNotice}
-                  </p>
-                </div>
-                <div className="pt-2 border-t border-slate-800/80">
-                  <span className="text-slate-400">Recommended Analyst Steps:</span>
-                  <p className="text-slate-300 mt-0.5 leading-relaxed">
-                    {activeIncident.recommendedAction}
-                  </p>
-                </div>
-              </div>
 
-              {/* Correlated Event Timeline */}
-              <div className="space-y-3">
-                <div className="text-xs font-semibold text-slate-300">
-                  Incident Telemetry Timeline ({relatedEvents.length} events on {activeIncident.hostname})
-                </div>
-                <div className="divide-y divide-slate-800/80 border border-slate-800 rounded-md bg-[#0B0F19]">
-                  {relatedEvents.map((ev) => (
-                    <div key={ev.eventId} className="p-3 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                      <div className="space-y-0.5">
-                        <div className="font-mono text-sky-400">
-                          {new Date(ev.eventTimestamp).toLocaleTimeString()} · {ev.ruleId} · {ev.processName}
-                        </div>
-                        <div className="text-slate-300">{ev.summary}</div>
-                      </div>
-                      <div className="font-mono tabular-nums text-slate-400 shrink-0">
-                        +{ev.riskContribution} risk ({ev.confidence}%)
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Analyst Notes & Incident Response Controls */}
-              <div className="space-y-4 pt-4 border-t border-slate-800">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-slate-200">
-                    Analyst Investigation Notes & Disposition
-                  </label>
-                  {statusMessage && (
-                    <span className="text-xs font-mono text-emerald-400">
-                      {statusMessage}
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span
+                      className={`px-2.5 py-1 text-xs font-mono font-medium rounded-lg uppercase ${
+                        inc.status === 'open'
+                          ? 'bg-rose-950/50 text-rose-400 border border-rose-800/60'
+                          : inc.status === 'investigating'
+                          ? 'bg-amber-950/50 text-amber-400 border border-amber-800/60'
+                          : inc.status === 'confirmed_violation'
+                          ? 'bg-rose-950/50 text-rose-400 border border-rose-800/60'
+                          : 'bg-emerald-950/50 text-emerald-400 border border-emerald-800/60'
+                      }`}
+                    >
+                      Status: {inc.status}
                     </span>
-                  )}
+                  </div>
                 </div>
 
-                <textarea
-                  rows={3}
-                  value={notesDraft}
-                  disabled={!canModify}
-                  onChange={(e) => setNotesDraft(e.target.value)}
-                  placeholder="Document corroborating evidence, signer verification, or reason for false-positive dismissal..."
-                  className="w-full p-3 text-xs bg-[#0B0F19] border border-slate-800 rounded-md text-slate-100 placeholder-slate-500 focus:outline-none focus:border-sky-500 disabled:opacity-50"
-                />
-
-                {!canModify ? (
-                  <div className="text-xs text-amber-400">
-                    Read-Only Viewer role active. Switch to Security Analyst or Administrator in Settings & Audit Logs to modify incident disposition.
+                {/* What Was Detected & Why It Is Suspicious */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                  <div className="p-4 bg-[#0B0F19] border border-slate-800/80 rounded-xl space-y-1">
+                    <div className="font-semibold text-slate-300">1. What was detected</div>
+                    <p className="text-slate-200 leading-relaxed">
+                      {inc.evidenceSummary || inc.title}
+                    </p>
                   </div>
-                ) : (
-                  <div className="flex flex-wrap items-center gap-2.5">
-                    <button
-                      onClick={() => {
-                        onUpdateIncident(
-                          activeIncident.incidentId,
-                          'investigating',
-                          notesDraft,
-                          `Marked incident ${activeIncident.incidentId} as Under Investigation.`
-                        );
-                        setStatusMessage('Saved: Under Investigation');
-                      }}
-                      className="px-3.5 py-2 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-100 rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-                    >
-                      Mark Under Investigation
-                    </button>
 
-                    <button
-                      onClick={() => {
-                        const updatedNotes = `${notesDraft}\n[Diagnostic Bundle Requested at ${new Date().toLocaleTimeString()}]: Agent collected process handle table & Authenticode certificate chain.`.trim();
-                        setNotesDraft(updatedNotes);
-                        onUpdateIncident(
-                          activeIncident.incidentId,
-                          'investigating',
-                          updatedNotes,
-                          `Requested controlled diagnostic collection from ${activeIncident.hostname}.`
-                        );
-                        setStatusMessage('Diagnostic Collection Logged');
-                      }}
-                      className="px-3.5 py-2 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-sky-400 rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-                    >
-                      Request Controlled Diagnostic Collection
-                    </button>
+                  <div className="p-4 bg-[#0B0F19] border border-slate-800/80 rounded-xl space-y-1">
+                    <div className="font-semibold text-slate-300">2. Why it is suspicious</div>
+                    <p className="text-slate-200 leading-relaxed">
+                      {suspicionReason}
+                    </p>
+                  </div>
+                </div>
 
-                    <button
-                      onClick={() => {
-                        onUpdateIncident(
-                          activeIncident.incidentId,
-                          'confirmed_violation',
-                          notesDraft || 'Confirmed violation after multi-indicator corroboration.',
-                          `Confirmed violation on incident ${activeIncident.incidentId} and authorized artifact quarantine.`
-                        );
-                        setStatusMessage('Saved: Confirmed Violation');
-                      }}
-                      className="px-3.5 py-2 text-xs font-medium bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-                    >
-                      Confirm Violation & Quarantine Artifact
-                    </button>
+                {/* Supporting Evidence & Confidence */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                  {/* Evidence Column */}
+                  <div className="md:col-span-2 p-4 bg-[#0B0F19] border border-slate-800/80 rounded-xl space-y-2">
+                    <div className="font-semibold text-slate-300">3. Supporting Forensic Evidence</div>
+                    <div className="space-y-1 font-mono text-[11px]">
+                      <div className="flex justify-between py-1 border-b border-slate-800/60">
+                        <span className="text-slate-500">Executable Path:</span>
+                        <span className="text-slate-200 truncate max-w-sm">{inc.executablePath || 'N/A'}</span>
+                      </div>
+                      <div className="flex justify-between py-1 border-b border-slate-800/60">
+                        <span className="text-slate-500">File SHA-256 Digest:</span>
+                        <span className="text-slate-200 truncate max-w-sm">{inc.fileSha256 || 'N/A'}</span>
+                      </div>
+                      <div className="flex justify-between py-1">
+                        <span className="text-slate-500">Digital Signer:</span>
+                        <span className="text-slate-200">{inc.digitalSignature || 'Unsigned'}</span>
+                      </div>
+                    </div>
+                  </div>
 
+                  {/* Confidence Column */}
+                  <div className="p-4 bg-[#0B0F19] border border-slate-800/80 rounded-xl space-y-2 flex flex-col justify-between">
+                    <div>
+                      <div className="font-semibold text-slate-300">4. Detection Confidence</div>
+                      <div className="text-2xl font-bold font-mono tabular-nums text-sky-400 mt-1">
+                        {inc.confidenceScore}%
+                      </div>
+                      <div className="text-xs text-slate-400 mt-0.5">
+                        {inc.confidenceScore >= 90
+                          ? 'High Confidence (Direct Hash/Memory Match)'
+                          : inc.confidenceScore >= 70
+                          ? 'Moderate (Heuristic Indicator)'
+                          : 'Low (Needs Verification)'}
+                      </div>
+                    </div>
+                    <div className="text-[11px] font-mono text-slate-400">
+                      Aggregated Risk: +{inc.aggregatedRiskScore} pts
+                    </div>
+                  </div>
+                </div>
+
+                {/* Recommended Next Steps */}
+                <div className="p-4 bg-[#0B0F19] border border-slate-800/80 rounded-xl space-y-1 text-xs">
+                  <div className="font-semibold text-slate-300">5. Recommended Next Steps</div>
+                  <p className="text-slate-300 leading-relaxed">
+                    {inc.recommendedAction || '1. Review if player is running authorized game recording tools. 2. Verify file SHA-256 in threat intelligence database. 3. Check parent process ancestry.'}
+                  </p>
+                </div>
+
+                {/* Analyst Notes Field */}
+                <div className="space-y-1.5 text-xs">
+                  <label className="text-slate-400 font-medium">Analyst Case Notes &amp; Disposition Log:</label>
+                  <input
+                    type="text"
+                    value={activeNotes[inc.incidentId] ?? (inc.analystNotes || '')}
+                    onChange={(e) =>
+                      setActiveNotes((prev) => ({
+                        ...prev,
+                        [inc.incidentId]: e.target.value,
+                      }))
+                    }
+                    placeholder="Enter case investigation notes (e.g. 'Player verified using OBS overlay, dismissing false positive')..."
+                    className="w-full px-3 py-2 bg-[#0B0F19] border border-slate-800 rounded-lg text-slate-100 placeholder-slate-500 text-xs focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+
+                {/* Action Buttons as Requested */}
+                <div className="pt-3 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-2">
                     <button
-                      onClick={() => {
-                        onUpdateIncident(
-                          activeIncident.incidentId,
-                          'dismissed_false_positive',
-                          notesDraft || 'Dismissed as benign utility / false-positive overlay.',
-                          `Dismissed incident ${activeIncident.incidentId} as a False Positive.`
-                        );
-                        setStatusMessage('Saved: Dismissed as False Positive');
-                      }}
-                      className="px-3.5 py-2 text-xs font-medium bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                      onClick={() => handleAction(inc, 'investigating', 'Investigating')}
+                      disabled={inc.status === 'investigating'}
+                      className="px-3.5 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-semibold rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      Mark as Investigating
+                    </button>
+                    <button
+                      onClick={() => handleAction(inc, 'confirmed_violation', 'Confirmed Threat')}
+                      className="px-3.5 py-1.5 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+                    >
+                      Confirm Threat
+                    </button>
+                    <button
+                      onClick={() => handleAction(inc, 'dismissed_false_positive', 'Dismissed as False Positive')}
+                      className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium rounded-lg transition-colors cursor-pointer"
                     >
                       Dismiss as False Positive
                     </button>
                   </div>
-                )}
+
+                  {actionFeedback[inc.incidentId] && (
+                    <span className="text-xs font-mono text-emerald-400 animate-pulse">
+                      {actionFeedback[inc.incidentId]}
+                    </span>
+                  )}
+                </div>
               </div>
-            </>
-          ) : (
-            <div className="text-xs text-slate-400 py-16 text-center space-y-2">
-              <div className="text-sm font-semibold text-slate-300">
-                No Incidents Currently Open
-              </div>
-              <p className="max-w-md mx-auto leading-relaxed">
-                All connected Free Fire emulator sessions are nominal. Correlated incidents and artifact provenance will display here as security indicators are detected.
-              </p>
-            </div>
-          )}
+            );
+          })}
         </div>
-      </div>
+      )}
     </div>
   );
 };

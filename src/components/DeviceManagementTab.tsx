@@ -9,6 +9,7 @@ interface DeviceManagementTabProps {
   userRole: UserRole;
   onUpdateDevice: (device: MonitoredDevice, auditDetails: string) => void;
   onRegisterDevice: (newDevice: MonitoredDevice) => void;
+  onOpenConnectModal: () => void;
 }
 
 export const DeviceManagementTab: React.FC<DeviceManagementTabProps> = ({
@@ -16,6 +17,7 @@ export const DeviceManagementTab: React.FC<DeviceManagementTabProps> = ({
   userRole,
   onUpdateDevice,
   onRegisterDevice,
+  onOpenConnectModal,
 }) => {
   const [newHostname, setNewHostname] = useState('');
   const [newEmulator, setNewEmulator] = useState('BlueStacks 5 (Pie64 v5.21)');
@@ -60,17 +62,25 @@ export const DeviceManagementTab: React.FC<DeviceManagementTabProps> = ({
       <div className="bg-[#111827] border border-slate-800 rounded-lg p-5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
           <h2 className="text-base font-semibold text-slate-100">
-            Monitored Windows Endpoints & Agent Lifecycle Management
+            Monitored Windows Endpoints &amp; Agent Lifecycle Management
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">
             Manage registered Windows PCs, per-agent credentials, Windows startup service configuration, and offline DPAPI encrypted telemetry queues.
           </p>
         </div>
-        {feedback && (
-          <div className="text-xs font-mono text-emerald-400 shrink-0">
-            {feedback}
-          </div>
-        )}
+        <div className="flex items-center gap-3 shrink-0">
+          <button
+            onClick={onOpenConnectModal}
+            className="px-3.5 py-2 text-xs font-medium text-slate-950 bg-sky-400 hover:bg-sky-300 rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer flex items-center gap-1.5"
+          >
+            <span>+ Connect Windows PC (Setup Guide)</span>
+          </button>
+          {feedback && (
+            <div className="text-xs font-mono text-emerald-400 shrink-0">
+              {feedback}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Register New Endpoint Form */}
@@ -151,9 +161,19 @@ export const DeviceManagementTab: React.FC<DeviceManagementTabProps> = ({
             <tbody className="divide-y divide-slate-800/70 text-xs">
               {devices.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-8 px-4 text-center text-slate-400">
-                    <div className="text-slate-300 font-medium">No Windows endpoints registered yet</div>
-                    <div className="text-xs text-slate-400 mt-1">Connect a live SentinelAgentService instance or register an endpoint above to monitor real-time game sessions.</div>
+                  <td colSpan={6} className="py-10 px-4 text-center text-slate-400">
+                    <div className="text-slate-200 font-semibold text-sm">No Windows endpoints registered yet</div>
+                    <div className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
+                      Connect a live Windows PC running BlueStacks 5 or LDPlayer 9 using the instant PowerShell agent or native C++ service.
+                    </div>
+                    <div className="mt-3">
+                      <button
+                        onClick={onOpenConnectModal}
+                        className="px-3.5 py-1.5 bg-sky-400 hover:bg-sky-300 text-slate-950 font-medium text-xs rounded-md transition-colors cursor-pointer"
+                      >
+                        Open Windows PC Connection Guide
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ) : (

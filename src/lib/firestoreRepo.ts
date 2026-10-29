@@ -27,6 +27,12 @@ import {
   UserRole,
 } from '../../shared-schemas/types.ts';
 import { getInitialRules } from './sentinelData.ts';
+import {
+  CONFIRMED_DEMO_DEVICE_IDS,
+  CONFIRMED_DEMO_HOSTNAMES,
+  isDemoOrFixtureDevice,
+  isDemoOrSimulatedEventOrIncident,
+} from '../../shared-schemas/fleetMetrics.ts';
 
 function sanitizeId(id: string): string {
   return id.replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 128);
@@ -117,14 +123,18 @@ export async function purgeLegacyDemoRecords(ownerId: string): Promise<void> {
       const snap = await getDocs(q);
       for (const docSnap of snap.docs) {
         const data = docSnap.data();
-        // If it's a legacy pre-data record, delete it
+        const idLower = (docSnap.id || '').trim().toLowerCase();
+        const devIdLower = (data.deviceId || '').trim().toLowerCase();
+        const hostUpper = (data.hostname || '').trim().toUpperCase();
         if (
           data.isSimulated === true ||
-          docSnap.id.includes('demo') ||
-          docSnap.id.startsWith('dev-win11-alpha') ||
-          docSnap.id.startsWith('dev-win10-ldp') ||
-          docSnap.id.startsWith('dev-win11-memu') ||
-          docSnap.id.startsWith('dev-win11-gpg')
+          CONFIRMED_DEMO_DEVICE_IDS.has(idLower) ||
+          CONFIRMED_DEMO_DEVICE_IDS.has(devIdLower) ||
+          CONFIRMED_DEMO_HOSTNAMES.has(hostUpper) ||
+          idLower.includes('demo') ||
+          idLower.startsWith('dev-win11-') ||
+          idLower.startsWith('dev-win10-') ||
+          (colName === 'devices' && !data.enrolledAt)
         ) {
           await deleteDoc(doc(db, colName, docSnap.id)).catch(() => {});
         }
@@ -347,7 +357,9 @@ export function subscribeToWorkspaceCollections(
   const unsubDevices = onSnapshot(
     query(collection(db, 'devices'), where('ownerId', '==', safeUid)),
     (snap) => {
-      const list = snap.docs.map((d) => d.data() as MonitoredDevice);
+      const list = snap.docs
+        .map((d) => d.data() as MonitoredDevice)
+        .filter((d) => !isDemoOrFixtureDevice(d, true));
       callbacks.onDevices(list);
     },
     (err) => handleFirestoreError(err, OperationType.LIST, 'devices')
@@ -367,6 +379,7 @@ export function subscribeToWorkspaceCollections(
     (snap) => {
       const list = snap.docs
         .map((d) => d.data() as SecurityEventRecord)
+        .filter((e) => !isDemoOrSimulatedEventOrIncident(e))
         .sort((a, b) => b.eventTimestamp.localeCompare(a.eventTimestamp));
       callbacks.onEvents(list);
     },
@@ -376,7 +389,9 @@ export function subscribeToWorkspaceCollections(
   const unsubIncidents = onSnapshot(
     query(collection(db, 'incidents'), where('ownerId', '==', safeUid)),
     (snap) => {
-      const list = snap.docs.map((d) => d.data() as IncidentRecord);
+      const list = snap.docs
+        .map((d) => d.data() as IncidentRecord)
+        .filter((inc) => !isDemoOrSimulatedEventOrIncident(inc));
       callbacks.onIncidents(list);
     },
     (err) => handleFirestoreError(err, OperationType.LIST, 'incidents')

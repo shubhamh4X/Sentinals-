@@ -429,5 +429,77 @@ service cloud.firestore {
       allow update: if false;
       allow delete: if isVerifiedUser() && isValidId(logId) && isAdmin();
     }
+
+    function isValidAgentRelayHeartbeat(data) {
+      return data.keys().hasAll([
+          'deviceId', 'hostname', 'osVersion', 'agentVersion', 'emulatorName',
+          'gameSessionState', 'freeFirePackage', 'status', 'enrollmentToken',
+          'cpuOverheadPercent', 'memoryFootprintMb', 'observedUtc'
+        ]) &&
+        data.keys().hasOnly([
+          'deviceId', 'hostname', 'osVersion', 'agentVersion', 'emulatorName',
+          'gameSessionState', 'freeFirePackage', 'status', 'enrollmentToken',
+          'cpuOverheadPercent', 'memoryFootprintMb', 'observedUtc'
+        ]) &&
+        isValidId(data.deviceId) &&
+        data.hostname is string && data.hostname.size() >= 1 && data.hostname.size() <= 120 &&
+        data.osVersion is string && data.osVersion.size() >= 1 && data.osVersion.size() <= 120 &&
+        data.agentVersion is string && data.agentVersion.size() >= 1 && data.agentVersion.size() <= 40 &&
+        data.emulatorName is string && data.emulatorName.size() >= 1 && data.emulatorName.size() <= 120 &&
+        data.gameSessionState is string &&
+        (data.gameSessionState == 'idle' || data.gameSessionState == 'launching' || data.gameSessionState == 'active_match' || data.gameSessionState == 'terminated') &&
+        data.freeFirePackage is string && data.freeFirePackage.size() >= 1 && data.freeFirePackage.size() <= 80 &&
+        data.status is string &&
+        (data.status == 'healthy' || data.status == 'degraded' || data.status == 'disconnected') &&
+        data.enrollmentToken is string && data.enrollmentToken.size() >= 4 && data.enrollmentToken.size() <= 128 &&
+        data.enrollmentToken.matches('^enr_[a-zA-Z0-9_]+$') &&
+        data.cpuOverheadPercent is number && data.cpuOverheadPercent >= 0 && data.cpuOverheadPercent <= 100 &&
+        data.memoryFootprintMb is number && data.memoryFootprintMb >= 0 && data.memoryFootprintMb <= 65536 &&
+        data.observedUtc is string && data.observedUtc.size() >= 1 && data.observedUtc.size() <= 64;
+    }
+
+    function isValidAgentRelayTelemetry(data) {
+      return data.keys().hasAll([
+          'nonce', 'deviceId', 'hostname', 'emulator', 'sessionId',
+          'indicatorType', 'processName', 'processPath', 'sha256',
+          'signerIdentity', 'observedTimestamp', 'enrollmentToken'
+        ]) &&
+        data.keys().hasOnly([
+          'nonce', 'deviceId', 'hostname', 'emulator', 'sessionId',
+          'indicatorType', 'processName', 'processPath', 'sha256',
+          'signerIdentity', 'observedTimestamp', 'enrollmentToken'
+        ]) &&
+        isValidId(data.nonce) &&
+        isValidId(data.deviceId) &&
+        data.hostname is string && data.hostname.size() >= 1 && data.hostname.size() <= 120 &&
+        data.emulator is string && data.emulator.size() >= 1 && data.emulator.size() <= 120 &&
+        data.sessionId is string && data.sessionId.size() >= 1 && data.sessionId.size() <= 128 &&
+        data.indicatorType is string && data.indicatorType.size() >= 1 && data.indicatorType.size() <= 80 &&
+        data.processName is string && data.processName.size() >= 1 && data.processName.size() <= 160 &&
+        data.processPath is string && data.processPath.size() >= 1 && data.processPath.size() <= 512 &&
+        data.sha256 is string && data.sha256.size() >= 1 && data.sha256.size() <= 128 &&
+        data.signerIdentity is string && data.signerIdentity.size() >= 1 && data.signerIdentity.size() <= 200 &&
+        data.observedTimestamp is string && data.observedTimestamp.size() >= 1 && data.observedTimestamp.size() <= 64 &&
+        data.enrollmentToken is string && data.enrollmentToken.size() >= 4 && data.enrollmentToken.size() <= 128 &&
+        data.enrollmentToken.matches('^enr_[a-zA-Z0-9_]+$');
+    }
+
+    // 8. /agent_relay_heartbeats/{deviceId} (Enrollment-Token Guarded Multi-PC Cloud Relay)
+    match /agent_relay_heartbeats/{deviceId} {
+      allow get, list: if true;
+      allow create, update: if isValidId(deviceId) &&
+        isValidAgentRelayHeartbeat(incoming()) &&
+        incoming().deviceId == deviceId;
+      allow delete: if isValidId(deviceId);
+    }
+
+    // 9. /agent_relay_telemetry/{nonce} (Enrollment-Token Guarded Multi-PC Telemetry Relay)
+    match /agent_relay_telemetry/{nonce} {
+      allow get, list: if true;
+      allow create, update: if isValidId(nonce) &&
+        isValidAgentRelayTelemetry(incoming()) &&
+        incoming().nonce == nonce;
+      allow delete: if isValidId(nonce);
+    }
   }
 }

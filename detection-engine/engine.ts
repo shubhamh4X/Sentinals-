@@ -199,6 +199,146 @@ export const DEFAULT_SIGNED_RULES: Omit<DetectionRuleRecord, 'ownerId'>[] = [
     signatureHash: 'sig_ed25519_agt001_4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f',
     indicatorTrigger: 'AGENT_HEARTBEAT_TIMEOUT',
   },
+  {
+    ruleId: 'PROC-003',
+    version: '1.2.0',
+    name: 'Suspicious PowerShell / CMD Script Execution Associated with Cheat Stager',
+    category: DetectionCategory.PROCESS_INTEGRITY,
+    severity: SeverityLevel.HIGH,
+    classification: EventClassification.STRONGLY_INDICATIVE,
+    confidence: 85,
+    riskScoreContribution: 28,
+    enabled: true,
+    detectionSource: 'Win32 Process / Script-Host CommandLine Inspector',
+    description:
+      'Detects suspicious PowerShell or command-shell invocations (e.g. base64-encoded commands, transient web client downloads to %TEMP%, or execution policy bypasses) interacting with or running alongside emulator processes.',
+    falsePositiveConsiderations:
+      'Legitimate automated updater scripts, developer build tasks, or IT admin maintenance may use PowerShell. Check parent process and destination directory.',
+    investigationSteps:
+      '1. Inspect the decoded command-line payload. 2. Verify network connections initiated by the script host. 3. Check if target binaries were dropped into %TEMP%.',
+    signatureHash: 'sig_ed25519_proc003_9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d',
+    indicatorTrigger: 'SUSPICIOUS_SCRIPT_EXECUTION',
+  },
+  {
+    ruleId: 'SYS-001',
+    version: '1.1.0',
+    name: 'Suspicious Process Ancestry or Hidden Helper Executable',
+    category: DetectionCategory.PROCESS_INTEGRITY,
+    severity: SeverityLevel.MEDIUM,
+    classification: EventClassification.SUSPICIOUS,
+    confidence: 70,
+    riskScoreContribution: 20,
+    enabled: true,
+    detectionSource: 'NtQueryInformationProcess(ProcessBasicInformation)',
+    description:
+      'Flags processes spawned with anomalous parent-child relationships (e.g., explorer.exe spawning an unsigned loader which spawns an orphaned injector helper).',
+    falsePositiveConsiderations:
+      'Some third-party game launchers and Discord hooks use helper stubs.',
+    investigationSteps:
+      '1. Review full process tree ancestry. 2. Verify digital signatures on both parent and child. 3. Correlate with MEM-001 handle access.',
+    signatureHash: 'sig_ed25519_sys001_8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d',
+    indicatorTrigger: 'SUSPICIOUS_PROCESS_ANCESTRY',
+  },
+  {
+    ruleId: 'EMU-003',
+    version: '1.5.0',
+    name: 'Unauthorized Emulator Configuration or Root Mode Modification',
+    category: DetectionCategory.EMULATOR_INTEGRITY,
+    severity: SeverityLevel.HIGH,
+    classification: EventClassification.STRONGLY_INDICATIVE,
+    confidence: 92,
+    riskScoreContribution: 36,
+    enabled: true,
+    detectionSource: 'Emulator Configuration & VMDK Baseline Verifier',
+    description:
+      'Detects tampering with emulator configuration files (e.g. enabling root mode, modifying kernel command-line args, or patching virtualization drivers) to bypass Android app protections.',
+    falsePositiveConsiderations:
+      'Manual emulator settings adjustments by users (e.g. RAM/CPU core allocation changes) can alter timestamps. Only flag security-relevant parameters such as root privileges.',
+    investigationSteps:
+      '1. Verify diff of configuration keys (e.g. bst.feature.rooting). 2. Inspect file permissions. 3. Correlate with adb root commands.',
+    signatureHash: 'sig_ed25519_emu003_7b6a5c4d3e2f1a0b9c8d7e6f5a4b3c2d',
+    indicatorTrigger: 'EMULATOR_CONFIG_TAMPER',
+  },
+  {
+    ruleId: 'EXT-001',
+    version: '2.0.0',
+    name: 'External Aimbot Driver or Virtual Input Pipe Attached',
+    category: DetectionCategory.ESP_GAMEPLAY,
+    severity: SeverityLevel.CRITICAL,
+    classification: EventClassification.STRONGLY_INDICATIVE,
+    confidence: 94,
+    riskScoreContribution: 42,
+    enabled: true,
+    detectionSource: 'Win32 DeviceIoControl / Named Pipe Enumerator',
+    description:
+      'Detects external virtual mouse/keyboard drivers (e.g. Interception, vJoy, custom synthetic HID devices) injecting automated aim-assist or recoil-control packets into the emulator.',
+    falsePositiveConsiderations:
+      'Accessibility devices or specialized gaming peripherals may create virtual input endpoints. Check device hardware IDs and digital signatures.',
+    investigationSteps:
+      '1. Inspect driver service name and hardware ID. 2. Verify Authenticode signature. 3. Correlate with rapid, unnatural mouse input vectors in gameplay.',
+    signatureHash: 'sig_ed25519_ext001_6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d',
+    indicatorTrigger: 'EXTERNAL_AIMBOT_DRIVER_PIPE',
+  },
+  {
+    ruleId: 'AGT-002',
+    version: '1.3.0',
+    name: 'Process Inspection Access Denied / Elevated Process Blind Spot',
+    category: DetectionCategory.AGENT_INTEGRITY,
+    severity: SeverityLevel.MEDIUM,
+    classification: EventClassification.SUSPICIOUS,
+    confidence: 76,
+    riskScoreContribution: 24,
+    enabled: true,
+    detectionSource: 'Win32 OpenProcess / EnumProcessModulesEx Visibility Monitor',
+    description:
+      'Reports when the Windows agent is denied access (ERROR_ACCESS_DENIED / PPL protection) while attempting to inspect a process or emulator memory space. Prevents silently marking an uninspectable endpoint as clean.',
+    falsePositiveConsiderations:
+      'Running the agent without Administrator elevation or encountering Protected Process Light (PPL) system/AV processes causes OpenProcess access-denied errors.',
+    investigationSteps:
+      '1. Verify whether the participant launched the agent with Administrator privileges. 2. Inspect which process PID returned ERROR_ACCESS_DENIED. 3. Require elevated agent restart before tournament match eligibility.',
+    signatureHash: 'sig_ed25519_agt002_1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d',
+    indicatorTrigger: 'PROCESS_INSPECTION_ACCESS_DENIED',
+  },
+  {
+    ruleId: 'AGT-003',
+    version: '1.2.0',
+    name: 'Telemetry Sequence Number Gap / Suppressed Event Stream',
+    category: DetectionCategory.AGENT_INTEGRITY,
+    severity: SeverityLevel.HIGH,
+    classification: EventClassification.STRONGLY_INDICATIVE,
+    confidence: 88,
+    riskScoreContribution: 35,
+    enabled: true,
+    detectionSource: 'Sentinel Monotonic Sequence Verifier',
+    description:
+      'Detects missing monotonic sequence numbers in an endpoint telemetry stream, indicating local network packet filtering, process suspension, or offline queue tampering.',
+    falsePositiveConsiderations:
+      'Hard system power loss before disk flush or corrupted local DPAPI queue files can cause sequence discontinuities.',
+    investigationSteps:
+      '1. Check missing sequence range in event metadata. 2. Inspect Blackbox hash chain for broken links. 3. Correlate with active match timestamps.',
+    signatureHash: 'sig_ed25519_agt003_2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e',
+    indicatorTrigger: 'TELEMETRY_SEQUENCE_GAP_DETECTED',
+  },
+  {
+    ruleId: 'AGT-004',
+    version: '1.5.0',
+    name: 'Agent Binary Self-Integrity Mismatch or Debugger Attachment',
+    category: DetectionCategory.AGENT_INTEGRITY,
+    severity: SeverityLevel.CRITICAL,
+    classification: EventClassification.STRONGLY_INDICATIVE,
+    confidence: 97,
+    riskScoreContribution: 50,
+    enabled: true,
+    detectionSource: 'Sentinel Self-Hash & IsDebuggerPresent Watchdog',
+    description:
+      'Detects runtime patching, debugger attachment, or binary hash mismatch on the Sentinel AC Windows agent executable or script.',
+    falsePositiveConsiderations:
+      'Unapproved manual edits to sentinel-agent.ps1 or outdated agent builds after a mandatory tournament update.',
+    investigationSteps:
+      '1. Immediately transition participant device to agent_integrity_failure. 2. Require clean re-enrollment with official signed agent build. 3. Hold match eligibility.',
+    signatureHash: 'sig_ed25519_agt004_3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f',
+    indicatorTrigger: 'AGENT_BINARY_INTEGRITY_MISMATCH',
+  },
 ];
 
 export interface EvaluationResult {
@@ -254,8 +394,8 @@ export class SentinelDetectionEngine {
     ownerId: string,
     existingIncidents: IncidentRecord[]
   ): EvaluationResult {
-    // 1. Replay Protection
-    if (this.seenNonces.has(telemetry.nonce)) {
+    // 1. Replay Protection (by nonce and optional client eventId)
+    if (this.seenNonces.has(telemetry.nonce) || (telemetry.eventId && this.seenNonces.has(telemetry.eventId))) {
       return {
         matched: false,
         suppressedDuplicate: true,
@@ -264,11 +404,16 @@ export class SentinelDetectionEngine {
       };
     }
     this.seenNonces.add(telemetry.nonce);
+    if (telemetry.eventId) {
+      this.seenNonces.add(telemetry.eventId);
+    }
+
+    const originType = telemetry.isSimulated ? 'controlled_test' : 'genuine_telemetry';
 
     // 2. Normal emulator launch (informational session lifecycle event)
     if (telemetry.indicatorType === 'NORMAL_EMULATOR_LAUNCH') {
       const infoEvent: SecurityEventRecord = {
-        eventId: `evt_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        eventId: telemetry.eventId || `evt_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
         ownerId,
         deviceId: telemetry.deviceId,
         hostname: telemetry.hostname,
@@ -288,7 +433,18 @@ export class SentinelDetectionEngine {
         summary: `Verified normal launch of ${telemetry.emulator} (${telemetry.processName}) with valid Authenticode signature (${telemetry.signerIdentity}). Game session monitoring activated.`,
         detectionSource: 'Emulator Adapter Lifecycle Monitor',
         isSimulated: telemetry.isSimulated,
+        originType,
+        tournamentId: telemetry.tournamentId,
+        matchId: telemetry.matchId,
+        roundId: telemetry.roundId,
+        participantId: telemetry.participantId,
+        sequenceNumber: telemetry.sequenceNumber,
         eventTimestamp: telemetry.observedTimestamp,
+        metadata: {
+          processPid: telemetry.processPid,
+          parentProcessPid: telemetry.parentProcessPid,
+          parentProcessName: telemetry.parentProcessName,
+        },
       };
       return {
         matched: true,
@@ -328,11 +484,16 @@ export class SentinelDetectionEngine {
     this.duplicateWindowMap.set(dedupeKey, now);
 
     // 5. Construct server-validated SecurityEventRecord
-    const eventId = `evt_${now}_${Math.random().toString(36).slice(2, 7)}`;
+    const eventId = telemetry.eventId || `evt_${now}_${Math.random().toString(36).slice(2, 7)}`;
     const summaryParts = [
       `[${matchedRule.ruleId}] ${matchedRule.name} on ${telemetry.hostname} (${telemetry.emulator}).`,
-      `Process: ${telemetry.processName} (${telemetry.signerIdentity}).`,
+      `Process: ${telemetry.processName}${telemetry.processPid ? ` [PID ${telemetry.processPid}]` : ''} (${telemetry.signerIdentity}).`,
     ];
+    if (telemetry.parentProcessName) {
+      summaryParts.push(
+        `Parent: ${telemetry.parentProcessName}${telemetry.parentProcessPid ? ` [PID ${telemetry.parentProcessPid}]` : ''}.`
+      );
+    }
     if (telemetry.requestedAccessMask && telemetry.targetProcess) {
       summaryParts.push(
         `Handle Access: ${telemetry.requestedAccessMask} -> ${telemetry.targetProcess}.`
@@ -343,6 +504,18 @@ export class SentinelDetectionEngine {
     }
     if (telemetry.modifiedAssetPath) {
       summaryParts.push(`Modified Asset: ${telemetry.modifiedAssetPath}.`);
+    }
+    if (telemetry.commandLine) {
+      summaryParts.push(`CommandLine: ${telemetry.commandLine}.`);
+    }
+    if (telemetry.loadedModule) {
+      summaryParts.push(`Injected Module: ${telemetry.loadedModule}.`);
+    }
+    if (telemetry.memoryAddress) {
+      summaryParts.push(`Memory Region: ${telemetry.memoryAddress} (${telemetry.memorySize || 'unbacked'}).`);
+    }
+    if (telemetry.blindSpotReason) {
+      summaryParts.push(`Visibility Limitation: ${telemetry.blindSpotReason}.`);
     }
 
     const eventRecord: SecurityEventRecord = {
@@ -366,6 +539,12 @@ export class SentinelDetectionEngine {
       summary: summaryParts.join(' '),
       detectionSource: matchedRule.detectionSource,
       isSimulated: telemetry.isSimulated,
+      originType,
+      tournamentId: telemetry.tournamentId,
+      matchId: telemetry.matchId,
+      roundId: telemetry.roundId,
+      participantId: telemetry.participantId,
+      sequenceNumber: telemetry.sequenceNumber,
       eventTimestamp: telemetry.observedTimestamp,
       metadata: {
         requestedAccessMask: telemetry.requestedAccessMask,
@@ -373,8 +552,14 @@ export class SentinelDetectionEngine {
         windowExStyle: telemetry.windowExStyle,
         memoryProtection: telemetry.memoryProtection,
         parentProcessName: telemetry.parentProcessName,
+        processPid: telemetry.processPid,
+        parentProcessPid: telemetry.parentProcessPid,
+        commandLine: telemetry.commandLine,
+        loadedModule: telemetry.loadedModule,
+        memoryAddress: telemetry.memoryAddress,
         falsePositiveNotes: matchedRule.falsePositiveConsiderations,
         recommendedSteps: matchedRule.investigationSteps,
+        inspectionBlindSpots: telemetry.blindSpotReason ? [telemetry.blindSpotReason] : undefined,
       },
     };
 
@@ -411,6 +596,9 @@ export class SentinelDetectionEngine {
         aggregatedRiskScore: combinedRisk,
         confidenceScore: combinedConfidence,
         correlatedEventCount: newCount,
+        tournamentId: telemetry.tournamentId || openDeviceIncident.tournamentId,
+        matchId: telemetry.matchId || openDeviceIncident.matchId,
+        participantId: telemetry.participantId || openDeviceIncident.participantId,
         evidenceSummary: `${openDeviceIncident.evidenceSummary} | Correlated [${matchedRule.ruleId}] (${telemetry.processName}, SHA-256: ${telemetry.sha256.slice(0, 16)}...)`,
         updatedAt: new Date().toISOString(),
       };
@@ -424,6 +612,7 @@ export class SentinelDetectionEngine {
         emulator: telemetry.emulator,
         severity: matchedRule.severity,
         status: 'open',
+        reviewState: 'pending_review',
         aggregatedRiskScore: matchedRule.riskScoreContribution,
         confidenceScore: matchedRule.confidence,
         correlatedEventCount: 1,
@@ -437,6 +626,10 @@ export class SentinelDetectionEngine {
         analystNotes: '',
         recommendedAction: matchedRule.investigationSteps,
         isSimulated: telemetry.isSimulated,
+        originType,
+        tournamentId: telemetry.tournamentId,
+        matchId: telemetry.matchId,
+        participantId: telemetry.participantId,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -452,3 +645,4 @@ export class SentinelDetectionEngine {
     };
   }
 }
+
